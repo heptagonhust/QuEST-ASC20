@@ -1,7 +1,7 @@
 // Distributed under MIT licence. See https://github.com/QuEST-Kit/QuEST/blob/master/LICENCE.txt for details 
 
 /** @file
- * An implementation of the backend in ../QuEST_ops.h for an MPI environment.
+ * An implementation of the backend in ../QuEST_ops.h for an  environment.
  * Mostly pure-state wrappers for the local/distributed functions implemented in QuEST_cpu
  *
  * @author Ania Brown
@@ -29,6 +29,7 @@
 # ifdef _OPENMP
 # include <omp.h>
 # endif
+
 
 
 Complex statevec_calcInnerProduct(Qureg bra, Qureg ket) {
@@ -561,7 +562,6 @@ void compressPairVectorForSingleQubitDepolarise(Qureg qureg, const int targetQub
 
 # ifdef _OPENMP
 # pragma omp parallel \
-    default  (none) \
     shared   (sizeInnerBlock,sizeInnerHalfBlock,sizeOuterColumn,sizeOuterHalfColumn,qureg) \
     private  (thisTask,thisInnerBlock,thisOuterColumn,thisIndex,thisIndexInOuterColumn, \
                 thisIndexInInnerBlock,outerBit) 
@@ -635,7 +635,7 @@ void compressPairVectorForTwoQubitDepolarise(Qureg qureg, const int targetQubit,
  
 # ifdef _OPENMP
 # pragma omp parallel \
-    default  (none) \
+    
     shared   (sizeInnerBlockQ1,sizeInnerHalfBlockQ1,sizeInnerQuarterBlockQ2,sizeInnerHalfBlockQ2,sizeInnerBlockQ2, \
                 sizeOuterColumn, \
                 sizeOuterQuarterColumn,qureg) \

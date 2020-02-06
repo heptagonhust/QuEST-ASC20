@@ -165,7 +165,7 @@ typedef struct Qureg
     //! The number of qubits represented in either the state-vector or density matrix
     int numQubitsRepresented;
     //! Number of qubits in the state-vector - this is double the number represented for mixed states
-    int numQubitsInStateVec;
+    int numQubitsInStateVec;  
     //! Number of probability amplitudes held in stateVec by this process
     //! In the non-MPI version, this is the total number of amplitudes
     long long int numAmpsPerChunk;
@@ -191,6 +191,14 @@ typedef struct Qureg
     
 } Qureg;
 
+
+/** 
+ * Mutiple-GPU Plan Structure
+ *
+ * @ingroup type
+ * @author AlisaWU
+ */
+
 /** Information about the environment the program is running in.
  * In practice, this holds info about MPI ranks and helps to hide MPI initialization code
  *
@@ -201,6 +209,7 @@ typedef struct QuESTEnv
 {
     int rank;
     int numRanks;
+    int numGPUs;
 } QuESTEnv;
 
 

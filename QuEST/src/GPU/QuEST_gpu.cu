@@ -15,6 +15,7 @@
 # include <stdlib.h>
 # include <stdio.h>
 # include <math.h>
+# include <cuda_runtime.h>
 
 # define REDUCE_SHARED_SIZE 512
 # define DEBUG 0
@@ -71,6 +72,48 @@ ArgMatrix4 argifyMatrix4(ComplexMatrix4 m) {
     return a;
  }
  
+ typedef struct{
+
+    //! Whether this instance is a density-state representation
+    int isDensityMatrix;
+    //! The number of qubits represented in either the state-vector or density matrix
+    int numQubitsRepresented;
+    //! Number of qubits in the state-vector - this is double the number represented for mixed states
+    int numQubitsInStateVec;  
+    //! Number of probability amplitudes held in stateVec by this process
+    //! In the non-MPI version, this is the total number of amplitudes
+    long long int numAmpsPerChunk;
+    //! Total number of amplitudes, which are possibly distributed among machines
+    long long int numAmpsTotal;
+
+    //! The position of the chunk of the state vector held by this process in the full state vector
+    int chunkId;
+    //! Number of chunks the state vector is broken up into -- the number of MPI processes used
+    int numChunks;
+      
+    //! Storage for wavefunction amplitudes in the GPU version
+    ComplexArray deviceStateVec;
+
+    //! Temporary storage for a chunk of the state vector received from another process in the MPI version
+    ComplexArray pairStateVec;
+
+    //! Storage for reduction of probabilities on GPU
+    qreal *firstLevelReduction, *secondLevelReduction;
+
+    //Stream for asynchronous command execution
+    cudaStream_t stream;
+} TGPUplan ;
+
+TGPUplan* plan;
+
+
+// qureg->numQubitsInStateVec = numQubits;
+// qureg->numAmpsPerChunk = numAmpsPerRank;
+// qureg->numAmpsTotal = numAmps;
+// qureg->chunkId = env.rank;
+// qureg->numChunks = env.numRanks;
+// qureg->isDensityMatrix = 0;
+
  /// \endcond
 
 
@@ -272,11 +315,13 @@ void densmatr_initClassicalState(Qureg qureg, long long int stateInd)
         qureg.deviceStateVec.imag, densityInd);
 }
 
+
+// TODO: implimate into more devices.
 void statevec_createQureg(Qureg *qureg, int numQubits, QuESTEnv env)
 {   
     // allocate CPU memory
     long long int numAmps = 1L << numQubits;
-    long long int numAmpsPerRank = numAmps/env.numRanks;
+    long long int numAmpsPerRank = numAmps / env.numRanks;
     qureg->stateVec.real = (qreal*) malloc(numAmpsPerRank * sizeof(qureg->stateVec.real));
     qureg->stateVec.imag = (qreal*) malloc(numAmpsPerRank * sizeof(qureg->stateVec.imag));
     if (env.numRanks>1){
@@ -290,11 +335,13 @@ void statevec_createQureg(Qureg *qureg, int numQubits, QuESTEnv env)
         printf("Could not allocate memory!\n");
         exit (EXIT_FAILURE);
     }
+
     if ( env.numRanks>1 && (!(qureg->pairStateVec.real) || !(qureg->pairStateVec.imag))
-            && numAmpsPerRank ) {
-        printf("Could not allocate memory!\n");
+          && numAmpsPerRank ) {
+        printf("Could not allocate memory!");
         exit (EXIT_FAILURE);
     }
+
 
     qureg->numQubitsInStateVec = numQubits;
     qureg->numAmpsPerChunk = numAmpsPerRank;
@@ -303,18 +350,45 @@ void statevec_createQureg(Qureg *qureg, int numQubits, QuESTEnv env)
     qureg->numChunks = env.numRanks;
     qureg->isDensityMatrix = 0;
 
-    // allocate GPU memory
-    cudaMalloc(&(qureg->deviceStateVec.real), qureg->numAmpsPerChunk*sizeof(*(qureg->deviceStateVec.real)));
-    cudaMalloc(&(qureg->deviceStateVec.imag), qureg->numAmpsPerChunk*sizeof(*(qureg->deviceStateVec.imag)));
-    cudaMalloc(&(qureg->firstLevelReduction), ceil(qureg->numAmpsPerChunk/(qreal)REDUCE_SHARED_SIZE)*sizeof(qreal));
-    cudaMalloc(&(qureg->secondLevelReduction), ceil(qureg->numAmpsPerChunk/(qreal)(REDUCE_SHARED_SIZE*REDUCE_SHARED_SIZE))*
-            sizeof(qreal));
+    // // allocate GPU memory
+    // cudaMalloc(&(qureg->deviceStateVec.real), qureg->numAmpsPerChunk*sizeof(*(qureg->deviceStateVec.real)));
+    // cudaMalloc(&(qureg->deviceStateVec.imag), qureg->numAmpsPerChunk*sizeof(*(qureg->deviceStateVec.imag)));
+    // cudaMalloc(&(qureg->firstLevelReduction), ceil(qureg->numAmpsPerChunk/(qreal)REDUCE_SHARED_SIZE)*sizeof(qreal));
+    // cudaMalloc(&(qureg->secondLevelReduction), ceil(qureg->numAmpsPerChunk/(qreal)(REDUCE_SHARED_SIZE*REDUCE_SHARED_SIZE))*
+    //         sizeof(qreal));
 
-    // check gpu memory allocation was successful
-    if (!(qureg->deviceStateVec.real) || !(qureg->deviceStateVec.imag)){
+    // // check gpu memory allocation was successful
+    // if (!(qureg->deviceStateVec.real) || !(qureg->deviceStateVec.imag)){
+    //     printf("Could not allocate memory on GPU!\n");
+    //     exit (EXIT_FAILURE);
+    // }
+
+    // allocate GPU memory
+    
+    long long int deviceStateVecSize = (qureg->numAmpsPerChunk*sizeof(*(qureg->deviceStateVec.real)) + env.numRanks - 1) / env.numRanks; 
+    long long int firstLevelReductionSize = (ceil(qureg->numAmpsPerChunk/(qreal)REDUCE_SHARED_SIZE)*sizeof(qreal) + env.numRanks -1) / env.numRanks; 
+    long long int secondLevelReductionSize = (ceil(qureg->numAmpsPerChunk/(qreal)(REDUCE_SHARED_SIZE*REDUCE_SHARED_SIZE))* sizeof(qreal) + env.numRanks -1 )  / env.numRanks; 
+    for(int i = 0;i < env.numRanks; i ++){
+      cudaSetDevice(i);
+      cudaStreamCreate(&plan[i].stream);
+      cudaMalloc((void **)&(plan[i].deviceStateVec.real), deviceStateVecSize);
+      cudaMalloc(&(plan[i].deviceStateVec.imag), deviceStateVecSize);
+      cudaMalloc(&(plan[i].firstLevelReduction), firstLevelReductionSize);
+      cudaMalloc(&(plan[i].secondLevelReduction), secondLevelReductionSize);
+
+      // check gpu memory allocation was successful
+      if(!(plan[i].deviceStateVec.real) || !(plan[i].deviceStateVec.imag)){
         printf("Could not allocate memory on GPU!\n");
         exit (EXIT_FAILURE);
+      }
+
+      plan[i].numAmpsPerChunk = numAmpsPerRank;
+      plan[i].numQubitsInStateVec = numQubits;
+      plan[i].chunkId = i;
+      plan[i].numChunks = env.numGPUs;
+      plan[i].isDensityMatrix = 0;
     }
+
 
 }
 
@@ -329,8 +403,17 @@ void statevec_destroyQureg(Qureg qureg, QuESTEnv env)
     }
 
     // Free GPU memory
-    cudaFree(qureg.deviceStateVec.real);
-    cudaFree(qureg.deviceStateVec.imag);
+
+    for(int i = 0;i < env.numRanks; i ++){
+      cudaSetDevice(i);
+      cudaFree(plan[i].deviceStateVec.real);
+      cudaFree(plan[i].deviceStateVec.imag);
+      cudaStreamDestroy(plan[i].stream);
+    }
+    delete plan;
+    // cudaFree(qureg.deviceStateVec.real);
+    // cudaFree(qureg.deviceStateVec.imag);
+    
 }
 
 int GPUExists(void){
@@ -350,6 +433,22 @@ int GPUExists(void){
     else return 0;
 }
 
+// QuESTEnv createQuESTEnv(void) {
+//     // init MPI environment
+//     if (!GPUExists()){
+//         printf("Trying to run GPU code with no GPU available\n");
+//         exit(EXIT_FAILURE);
+//     }
+    
+//     QuESTEnv env;
+//     env.rank=0;
+//     env.numRanks=1;
+    
+//     seedQuESTDefault();
+    
+//     return env;
+// }
+
 QuESTEnv createQuESTEnv(void) {
     // init MPI environment
     if (!GPUExists()){
@@ -357,9 +456,17 @@ QuESTEnv createQuESTEnv(void) {
         exit(EXIT_FAILURE);
     }
     
+    //Get the numble of CUDA-capble GPU
+    int N_GPU;
+    cudaGetDeviceCount(&N_GPU);
+
+
+
     QuESTEnv env;
     env.rank=0;
-    env.numRanks=1;
+    env.numRanks = 1;
+    env.numGPUs = N_GPU;
+    plan = new TGPUplan[N_GPU];
     
     seedQuESTDefault();
     
@@ -468,6 +575,8 @@ __global__ void statevec_initBlankStateKernel(long long int stateVecSize, qreal 
     stateVecImag[index] = 0.0;
 }
 
+// TODO:change to more GPU and devices
+
 void statevec_initBlankState(Qureg qureg)
 {
     int threadsPerCUDABlock, CUDABlocks;
@@ -499,11 +608,18 @@ void statevec_initZeroState(Qureg qureg)
 {
     int threadsPerCUDABlock, CUDABlocks;
     threadsPerCUDABlock = 128;
-    CUDABlocks = ceil((qreal)(qureg.numAmpsPerChunk)/threadsPerCUDABlock);
-    statevec_initZeroStateKernel<<<CUDABlocks, threadsPerCUDABlock>>>(
-        qureg.numAmpsPerChunk, 
-        qureg.deviceStateVec.real, 
-        qureg.deviceStateVec.imag);
+    CUDABlocks = ceil((qreal)(qureg.numAmpsPerChunk)/(threadsPerCUDABlock * qureg.numChunks));
+    for(int i = 0;i < qureg.numChunks; i ++){
+      cudaSetDevice(i);
+      statevec_initZeroStateKernel<<<CUDABlocks,threadsPerCUDABlock, 0, plan[i].stream>>>(
+        plan[i].numAmpsPerChunk,
+        plan[i].deviceStateVec.real, 
+        plan[i].deviceStateVec.imag);
+    }
+    // statevec_initZeroStateKernel<<<CUDABlocks, threadsPerCUDABlock>>>(
+    //     qureg.numAmpsPerChunk, 
+    //     qureg.deviceStateVec.real, 
+    //     qureg.deviceStateVec.imag);
 }
 
 __global__ void statevec_initPlusStateKernel(long long int stateVecSize, qreal *stateVecReal, qreal *stateVecImag){
@@ -719,6 +835,8 @@ __global__ void statevec_compactUnitaryKernel (Qureg qureg, const int rotQubit, 
         + alphaReal*stateImagLo - alphaImag*stateRealLo;
 }
 
+// TODO
+
 void statevec_compactUnitary(Qureg qureg, const int targetQubit, Complex alpha, Complex beta) 
 {
     int threadsPerCUDABlock, CUDABlocks;
@@ -786,6 +904,8 @@ __global__ void statevec_controlledCompactUnitaryKernel (Qureg qureg, const int 
     }
 }
 
+
+// TODO
 void statevec_controlledCompactUnitary(Qureg qureg, const int controlQubit, const int targetQubit, Complex alpha, Complex beta) 
 {
     int threadsPerCUDABlock, CUDABlocks;
@@ -847,6 +967,8 @@ __global__ void statevec_unitaryKernel(Qureg qureg, const int targetQubit, ArgMa
         + u.r1c1.real*stateImagLo + u.r1c1.imag*stateRealLo;
 }
 
+
+// TODO
 void statevec_unitary(Qureg qureg, const int targetQubit, ComplexMatrix2 u)
 {
     int threadsPerCUDABlock, CUDABlocks;
@@ -1180,6 +1302,8 @@ __global__ void statevec_multiControlledUnitaryKernel(
     }
 }
 
+
+// TODO
 void statevec_multiControlledUnitary(
     Qureg qureg, 
     long long int ctrlQubitsMask, long long int ctrlFlipMask, 
@@ -1667,6 +1791,9 @@ __global__ void statevec_hadamardKernel (Qureg qureg, const int targetQubit){
     stateVecImag[indexLo] = recRoot2*(stateImagUp - stateImagLo);
 }
 
+
+// TODO 参考
+
 void statevec_hadamard(Qureg qureg, const int targetQubit) 
 {
     int threadsPerCUDABlock, CUDABlocks;
@@ -1713,6 +1840,9 @@ __global__ void statevec_controlledNotKernel(Qureg qureg, const int controlQubit
         stateVecImag[indexLo] = stateImagUp;
     }
 }
+
+
+// TODO 
 
 void statevec_controlledNot(Qureg qureg, const int controlQubit, const int targetQubit)
 {
