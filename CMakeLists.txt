@@ -3,10 +3,10 @@
 # author: Balint Koczor (Windows compatibility)
 
 # CMake initialisation.
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.15)
 
 # Project name
-project(QuEST_Project)
+project(QuEST_Project LANGUAGES C CXX CUDA)
 
 # -----------------------------------------------------------------------------
 # ----- USER OPTIONS ----------------------------------------------------------
