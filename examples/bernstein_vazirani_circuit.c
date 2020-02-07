@@ -7,6 +7,8 @@
 # include <stdio.h>
 # include <math.h>
 
+# include <time.h>
+
 # include "QuEST.h" 
 
 
@@ -16,7 +18,7 @@ int main (int narg, char** varg) {
     /* 	
      * PREPARE QuEST
      */
-
+    auto time_begin = clock();
     // model parameters
     int numQubits = 9;
     int secretNum = pow(2,4) + 1;
@@ -71,5 +73,7 @@ int main (int narg, char** varg) {
 
     destroyQureg(qureg, env); 
     destroyQuESTEnv(env);
+    auto time_end = clock();
+    printf("time = %.6lf\n",(double)(time_end - time_begin) / CLOCKS_PER_SEC);
     return 0;
 }

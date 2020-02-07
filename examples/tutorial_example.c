@@ -7,11 +7,12 @@
 
 #include <stdio.h>
 #include "QuEST.h"
-
+#include <math.h>
+#include <time.h>
 int main (int narg, char *varg[]) {
 
 
-
+    auto time_begin = clock();
     /*
      * PREPARE QuEST environment
      * (Required only once per program)
@@ -29,7 +30,7 @@ int main (int narg, char *varg[]) {
      * PREPARE QUBIT SYSTEM
      */
 
-    Qureg qubits = createQureg(3, env);
+    Qureg qubits = createQureg(4, env);
     initZeroState(qubits);
 
 
@@ -49,6 +50,7 @@ int main (int narg, char *varg[]) {
 
     hadamard(qubits, 0);
     controlledNot(qubits, 0, 1);
+    // 不用改
     rotateY(qubits, 2, .1);
 
     int targs[] = {0,1,2};
@@ -118,5 +120,7 @@ int main (int narg, char *varg[]) {
      * (Required once at end of program)
      */
     destroyQuESTEnv(env);
+    auto time_end = clock();
+    printf("time = %.6lf\n",(double)(time_end - time_begin) / CLOCKS_PER_SEC);
     return 0;
 }
