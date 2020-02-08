@@ -1709,7 +1709,7 @@ __global__ void statevec_hadamardKernel (Qureg qureg, const int targetQubit){
  *  @param[in] updateUpper flag, 1: updating upper values, 0: updating lower values in block
  *  @param[out] stateVecOut array section to update (will correspond to either the lower or upper half of a block)
  */
- __global__ void statevec_hadamardKernelDistributed(Qureg qureg,
+ __global__ void statevec_hadamardDistributedKernel(Qureg qureg,
   ComplexArray stateVecUp,
   ComplexArray stateVecLo,
   ComplexArray stateVecOut,
@@ -1730,6 +1730,7 @@ __global__ void statevec_hadamardKernel (Qureg qureg, const int targetQubit){
 
     qreal recRoot2 = 1.0/sqrt(2.0);
     thisTask = blockIdx.x*blockDim.x + threadIdx.x;
+    if(thisTask>=numTasks) return;
 
     qreal *stateVecRealUp=stateVecUp.real, *stateVecImagUp=stateVecUp.imag;
     qreal *stateVecRealLo=stateVecLo.real, *stateVecImagLo=stateVecLo.imag;
@@ -1859,12 +1860,12 @@ void statevec_hadamard(Qureg qureg, const int targetQubit)
 
       CUDABlocks = ceil((qreal)(qureg.numAmpsPerChunk)/threadsPerCUDABlock);
       if (rankIsUpper){
-          statevec_hadamardKernelDistributed<<<CUDABlocks, threadsPerCUDABlock>>>(qureg,
+          statevec_hadamardDistributedKernel<<<CUDABlocks, threadsPerCUDABlock>>>(qureg,
                   qureg.stateVec, //upper
                   qureg.pairStateVec, //lower
                   qureg.stateVec, rankIsUpper); //output
       } else {
-        statevec_hadamardKernelDistributed<<<CUDABlocks, threadsPerCUDABlock>>>(qureg,
+        statevec_hadamardDistributedKernel<<<CUDABlocks, threadsPerCUDABlock>>>(qureg,
                   qureg.pairStateVec, //upper
                   qureg.stateVec, //lower
                   qureg.stateVec, rankIsUpper); //output
@@ -1912,12 +1913,77 @@ __global__ void statevec_controlledNotKernel(Qureg qureg, const int controlQubit
     }
 }
 
+/** Rotate a single qubit by {{0,1},{1,0}.
+ *  Operate on a subset of the state vector with upper and lower block values 
+ *  stored seperately. This rotation is just swapping upper and lower values, and
+ *  stateVecIn must already be the correct section for this chunk. Only perform the rotation
+ *  for elements where controlQubit is one.
+ *                                          
+ *  @param[in,out] qureg object representing the set of qubits
+ *  @param[in] stateVecIn probability amplitudes in lower or upper half of a block depending on chunkId
+ *  @param[out] stateVecOut array section to update (will correspond to either the lower or upper half of a block)
+ */
+ __global__ void statevec_controlledNotDistributedKernel (Qureg qureg, const int controlQubit,
+  ComplexArray stateVecIn,
+  ComplexArray stateVecOut)
+{
+
+    long long int thisTask;  
+    const long long int numTasks=qureg.numAmpsPerChunk;
+    const long long int chunkSize=qureg.numAmpsPerChunk;
+    const long long int chunkId=qureg.chunkId;
+
+    int controlBit;
+
+    qreal *stateVecRealIn=stateVecIn.real, *stateVecImagIn=stateVecIn.imag;
+    qreal *stateVecRealOut=stateVecOut.real, *stateVecImagOut=stateVecOut.imag;
+
+    const long long int index = blockIdx.x*blockDim.x + threadIdx.x;
+    if(index>=numTasks) return;
+
+    controlBit = extractBit(controlQubit, index + chunkId*chunkSize);
+    // I dont know if it is right
+
+
+    if (controlBit){
+      stateVecRealOut[index] = stateVecRealIn[index];
+      stateVecImagOut[index] = stateVecImagIn[index];
+    }
+} 
+
+
 void statevec_controlledNot(Qureg qureg, const int controlQubit, const int targetQubit)
 {
+    // flag to require memory exchange. 1: an entire block fits on one rank, 0: at most half a block fits on one rank
+    int useLocalDataOnly = halfMatrixBlockFitsInChunk(qureg.numAmpsPerChunk, targetQubit);
+    int rankIsUpper; 	// rank's chunk is in upper half of block 
+    int pairRank; 		// rank of corresponding chunk
+
     int threadsPerCUDABlock, CUDABlocks;
     threadsPerCUDABlock = 128;
-    CUDABlocks = ceil((qreal)(qureg.numAmpsPerChunk)/threadsPerCUDABlock);
-    statevec_controlledNotKernel<<<CUDABlocks, threadsPerCUDABlock>>>(qureg, controlQubit, targetQubit);
+
+    if (useLocalDataOnly){
+      CUDABlocks = ceil((qreal)(qureg.numAmpsPerChunk)/threadsPerCUDABlock);
+      // all values required to update state vector lie in this rank
+      statevec_controlledNotKernel<<<CUDABlocks, threadsPerCUDABlock>>>(qureg, controlQubit, targetQubit);
+  } else {
+      // need to get corresponding chunk of state vector from other rank
+      rankIsUpper = chunkIsUpper(qureg.chunkId, qureg.numAmpsPerChunk, targetQubit);
+      pairRank = getChunkPairId(rankIsUpper, qureg.chunkId, qureg.numAmpsPerChunk, targetQubit);
+      // get corresponding values from my pair
+      exchangeStateVectors(qureg, pairRank);
+      // this rank's values are either in the upper of lower half of the block
+      CUDABlocks = ceil((qreal)(qureg.numAmpsPerChunk)/threadsPerCUDABlock);
+      if (rankIsUpper){
+          statevec_controlledNotDistributedKernel<<<CUDABlocks, threadsPerCUDABlock>>>(qureg,controlQubit,
+                  qureg.pairStateVec, //in
+                  qureg.stateVec); //out
+      } else {
+        statevec_controlledNotDistributedKernel<<<CUDABlocks, threadsPerCUDABlock>>>(qureg,controlQubit,
+                  qureg.pairStateVec, //in
+                  qureg.stateVec); //out
+      }
+  }
 }
 
 __device__ __host__ unsigned int log2Int( unsigned int x )
