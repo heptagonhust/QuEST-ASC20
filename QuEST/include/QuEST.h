@@ -183,6 +183,8 @@ typedef struct Qureg
     
     //! Storage for wavefunction amplitudes in the GPU version
     ComplexArray deviceStateVec;
+    //! Temporary storage for a chunk of the state vector received from another process in the MPI version
+    ComplexArray pairDeviceStateVec;
     //! Storage for reduction of probabilities on GPU
     qreal *firstLevelReduction, *secondLevelReduction;
 

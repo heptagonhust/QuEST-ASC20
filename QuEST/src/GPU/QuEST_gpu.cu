@@ -15,6 +15,7 @@
 # include <stdlib.h>
 # include <stdio.h>
 # include <math.h>
+# include <mpi.h>
 
 # define REDUCE_SHARED_SIZE 512
 # define DEBUG 0
@@ -306,12 +307,24 @@ void statevec_createQureg(Qureg *qureg, int numQubits, QuESTEnv env)
     // allocate GPU memory
     cudaMalloc(&(qureg->deviceStateVec.real), qureg->numAmpsPerChunk*sizeof(*(qureg->deviceStateVec.real)));
     cudaMalloc(&(qureg->deviceStateVec.imag), qureg->numAmpsPerChunk*sizeof(*(qureg->deviceStateVec.imag)));
+
+    if (env.numRanks>1){
+      cudaMalloc(&(qureg->pairDeviceStateVec.real), qureg->numAmpsPerChunk*sizeof(*(qureg->pairDeviceStateVec.real)));
+      cudaMalloc(&(qureg->pairDeviceStateVec.imag), qureg->numAmpsPerChunk*sizeof(*(qureg->pairDeviceStateVec.imag)));
+    }
+
     cudaMalloc(&(qureg->firstLevelReduction), ceil(qureg->numAmpsPerChunk/(qreal)REDUCE_SHARED_SIZE)*sizeof(qreal));
     cudaMalloc(&(qureg->secondLevelReduction), ceil(qureg->numAmpsPerChunk/(qreal)(REDUCE_SHARED_SIZE*REDUCE_SHARED_SIZE))*
             sizeof(qreal));
 
     // check gpu memory allocation was successful
     if (!(qureg->deviceStateVec.real) || !(qureg->deviceStateVec.imag)){
+        printf("Could not allocate memory on GPU!\n");
+        exit (EXIT_FAILURE);
+    }
+
+    if ( env.numRanks>1 && (!(qureg->deviceStateVec.real) || !(qureg->deviceStateVec.imag))
+        && numAmpsPerRank ) {
         printf("Could not allocate memory on GPU!\n");
         exit (EXIT_FAILURE);
     }
@@ -351,15 +364,34 @@ int GPUExists(void){
 }
 
 QuESTEnv createQuESTEnv(void) {
-    // init MPI environment
+    
     if (!GPUExists()){
         printf("Trying to run GPU code with no GPU available\n");
         exit(EXIT_FAILURE);
     }
     
     QuESTEnv env;
-    env.rank=0;
-    env.numRanks=1;
+    // init MPI environment
+    int rank, numRanks, initialized;
+    MPI_Initialized(&initialized);
+    if (!initialized){
+        MPI_Init(NULL, NULL);
+        MPI_Comm_size(MPI_COMM_WORLD, &numRanks);
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+        env.rank=rank;
+        env.numRanks=numRanks;
+
+    } else {
+        
+        printf("ERROR: Trying to initialize QuESTEnv multiple times. Ignoring...\n");
+        
+        // ensure env is initialised anyway, so the compiler is happy
+        MPI_Comm_size(MPI_COMM_WORLD, &numRanks);
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        env.rank=rank;
+        env.numRanks=numRanks;
+	  }
     
     seedQuESTDefault();
     
@@ -1667,12 +1699,178 @@ __global__ void statevec_hadamardKernel (Qureg qureg, const int targetQubit){
     stateVecImag[indexLo] = recRoot2*(stateImagUp - stateImagLo);
 }
 
+/** Rotate a single qubit by {{1,1},{1,-1}}/sqrt2.
+ *  Operate on a subset of the state vector with upper and lower block values 
+ *  stored seperately. This rotation is just swapping upper and lower values, and
+ *  stateVecIn must already be the correct section for this chunk
+ *                                          
+ *  @param[in,out] qureg object representing the set of qubits
+ *  @param[in] stateVecIn probability amplitudes in lower or upper half of a block depending on chunkId
+ *  @param[in] updateUpper flag, 1: updating upper values, 0: updating lower values in block
+ *  @param[out] stateVecOut array section to update (will correspond to either the lower or upper half of a block)
+ */
+ __global__ void statevec_hadamardKernelDistributed(Qureg qureg,
+  ComplexArray stateVecUp,
+  ComplexArray stateVecLo,
+  ComplexArray stateVecOut,
+  int updateUpper)
+{
+
+    // ----- temp variables
+    qreal   stateRealUp,stateRealLo,                             // storage for previous state values
+           stateImagUp,stateImagLo;                             // (used in updates)
+    // ----- temp variables
+    long long int thisTask;                                   // task based approach for expose loop with small granularity
+   
+    const long long int numTasks=qureg.numAmpsPerChunk;
+
+    int sign;
+    if (updateUpper) sign=1;
+    else sign=-1;
+
+    qreal recRoot2 = 1.0/sqrt(2.0);
+    thisTask = blockIdx.x*blockDim.x + threadIdx.x;
+
+    qreal *stateVecRealUp=stateVecUp.real, *stateVecImagUp=stateVecUp.imag;
+    qreal *stateVecRealLo=stateVecLo.real, *stateVecImagLo=stateVecLo.imag;
+    qreal *stateVecRealOut=stateVecOut.real, *stateVecImagOut=stateVecOut.imag;
+    
+    // store current state vector values in temp variables
+    stateRealUp = stateVecRealUp[thisTask];
+    stateImagUp = stateVecImagUp[thisTask];
+
+    stateRealLo = stateVecRealLo[thisTask];
+    stateImagLo = stateVecImagLo[thisTask];
+
+    stateVecRealOut[thisTask] = recRoot2*(stateRealUp + sign*stateRealLo);
+    stateVecImagOut[thisTask] = recRoot2*(stateImagUp + sign*stateImagLo);
+}
+
+
+/** return whether the current qubit rotation will use
+ * blocks that fit within a single chunk.
+ * 
+ * @param[in] chunkSize number of amps in chunk
+ * @param[in] targetQubit qubit being rotated 
+ * @return 1: one chunk fits in one block 0: chunk is larger than block
+ */
+//! fix -- this should be renamed to matrixBlockFitsInChunk
+static int halfMatrixBlockFitsInChunk(long long int chunkSize, int targetQubit)
+{
+    long long int sizeHalfBlock = 1LL << (targetQubit);
+    if (chunkSize > sizeHalfBlock) return 1;
+    else return 0;
+}
+
+/** Returns whether a given chunk in position chunkId is in the upper or lower half of
+  a block.
+ * 
+ * @param[in] chunkId id of chunk in state vector
+ * @param[in] chunkSize number of amps in chunk
+ * @param[in] targetQubit qubit being rotated 
+ * @return 1: chunk is in upper half of block, 0: chunk is in lower half of block 
+ */
+//! fix -- is this the same as isChunkToSkip?
+static int chunkIsUpper(int chunkId, long long int chunkSize, int targetQubit)
+{       
+    long long int sizeHalfBlock = 1LL << (targetQubit);
+    long long int sizeBlock = sizeHalfBlock*2;
+    long long int posInBlock = (chunkId*chunkSize) % sizeBlock;
+    return posInBlock<sizeHalfBlock;
+}
+
+/** get position of corresponding chunk, holding values required to
+ * update values in my chunk (with chunkId) when rotating targetQubit.
+ * 
+ * @param[in] chunkIsUpper 1: chunk is in upper half of block, 0: chunk is in lower half
+ * @param[in] chunkId id of chunk in state vector
+ * @param[in] chunkSize number of amps in chunk
+ * @param[in] targetQubit qubit being rotated 
+ * @return chunkId of chunk required to rotate targetQubit 
+ */
+static int getChunkPairId(int chunkIsUpper, int chunkId, long long int chunkSize, int targetQubit)
+{
+    long long int sizeHalfBlock = 1LL << (targetQubit);
+    int chunksPerHalfBlock = sizeHalfBlock/chunkSize;
+    if (chunkIsUpper){
+        return chunkId + chunksPerHalfBlock;
+    } else {
+        return chunkId - chunksPerHalfBlock;
+    }
+}
+
+void exchangeStateVectors(Qureg qureg, int pairRank){
+  // MPI send/receive vars
+  int TAG=100;
+  MPI_Status status;
+
+  // Multiple messages are required as MPI uses int rather than long long int for count
+  // For openmpi, messages are further restricted to 2GB in size -- do this for all cases
+  // to be safe
+  long long int maxMessageCount = MPI_MAX_AMPS_IN_MSG;
+  if (qureg.numAmpsPerChunk < maxMessageCount) 
+      maxMessageCount = qureg.numAmpsPerChunk;
+  
+  // safely assume MPI_MAX... = 2^n, so division always exact
+  int numMessages = qureg.numAmpsPerChunk/maxMessageCount;
+  int i;
+  long long int offset;
+  // send my state vector to pairRank's qureg.pairStateVec
+  // receive pairRank's state vector into qureg.pairStateVec
+  for (i=0; i<numMessages; i++){
+      offset = i*maxMessageCount;
+      MPI_Sendrecv(&qureg.deviceStateVec.real[offset], maxMessageCount, MPI_QuEST_REAL, pairRank, TAG,
+              &qureg.pairDeviceStateVec.real[offset], maxMessageCount, MPI_QuEST_REAL,
+              pairRank, TAG, MPI_COMM_WORLD, &status);
+      //printf("rank: %d err: %d\n", qureg.rank, err);
+      MPI_Sendrecv(&qureg.deviceStateVec.imag[offset], maxMessageCount, MPI_QuEST_REAL, pairRank, TAG,
+              &qureg.pairDeviceStateVec.imag[offset], maxMessageCount, MPI_QuEST_REAL,
+              pairRank, TAG, MPI_COMM_WORLD, &status);
+  }
+}
+
+
+
 void statevec_hadamard(Qureg qureg, const int targetQubit) 
 {
+    // flag to require memory exchange. 1: an entire block fits on one rank, 0: at most half a block fits on one rank
+    int useLocalDataOnly = halfMatrixBlockFitsInChunk(qureg.numAmpsPerChunk, targetQubit);
+
+    // rank's chunk is in upper half of block 
+    int rankIsUpper;
+    int pairRank; // rank of corresponding chunk
+
     int threadsPerCUDABlock, CUDABlocks;
     threadsPerCUDABlock = 128;
-    CUDABlocks = ceil((qreal)(qureg.numAmpsPerChunk>>1)/threadsPerCUDABlock);
-    statevec_hadamardKernel<<<CUDABlocks, threadsPerCUDABlock>>>(qureg, targetQubit);
+    
+    if (useLocalDataOnly){
+      CUDABlocks = ceil((qreal)(qureg.numAmpsPerChunk>>1)/threadsPerCUDABlock);
+      // all values required to update state vector lie in this rank
+      statevec_hadamardKernel<<<CUDABlocks, threadsPerCUDABlock>>>(qureg, targetQubit);
+    } else {
+      // need to get corresponding chunk of state vector from other rank
+      rankIsUpper = chunkIsUpper(qureg.chunkId, qureg.numAmpsPerChunk, targetQubit);
+      pairRank = getChunkPairId(rankIsUpper, qureg.chunkId, qureg.numAmpsPerChunk, targetQubit);
+      //printf("%d rank has pair rank: %d\n", qureg.rank, pairRank);
+      // get corresponding values from my pair
+      exchangeStateVectors(qureg, pairRank);
+      // this rank's values are either in the upper of lower half of the block. send values to hadamardDistributed
+      // in the correct order
+
+      CUDABlocks = ceil((qreal)(qureg.numAmpsPerChunk)/threadsPerCUDABlock);
+      if (rankIsUpper){
+          statevec_hadamardKernelDistributed<<<CUDABlocks, threadsPerCUDABlock>>>(qureg,
+                  qureg.stateVec, //upper
+                  qureg.pairStateVec, //lower
+                  qureg.stateVec, rankIsUpper); //output
+      } else {
+        statevec_hadamardKernelDistributed<<<CUDABlocks, threadsPerCUDABlock>>>(qureg,
+                  qureg.pairStateVec, //upper
+                  qureg.stateVec, //lower
+                  qureg.stateVec, rankIsUpper); //output
+      }
+    }
+    
 }
 
 __global__ void statevec_controlledNotKernel(Qureg qureg, const int controlQubit, const int targetQubit)

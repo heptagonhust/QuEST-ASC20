@@ -29,7 +29,7 @@ set(PRECISION 2 CACHE STRING
 
 option(GPUACCELERATED "Whether to program will run on GPU. Set to 1 to enable" 0)
 
-set(GPU_COMPUTE_CAPABILITY 30 CACHE STRING "GPU hardware dependent, lookup at https://developer.nvidia.com/cuda-gpus. Write without fullstop")
+set(GPU_COMPUTE_CAPABILITY 61 CACHE STRING "GPU hardware dependent, lookup at https://developer.nvidia.com/cuda-gpus. Write without fullstop")
 
 
 
@@ -49,11 +49,11 @@ message(STATUS "MPI distribution is ${DISTRIBUTED}")
 
 # ----- FATAL -----------------------------------------------------------------
 
-if (${DISTRIBUTED} AND ${GPUACCELERATED})
-    message(FATAL_ERROR "DISTRIBUTED=${DISTRIBUTED} and \
-        GPUACCELERATED=${GPUACCELERATED} set but \
-        distributed GPU acceleration not supported. Aborting")
-endif()
+# if (${DISTRIBUTED} AND ${GPUACCELERATED})
+#     message(FATAL_ERROR "DISTRIBUTED=${DISTRIBUTED} and \
+#         GPUACCELERATED=${GPUACCELERATED} set but \
+#         distributed GPU acceleration not supported. Aborting")
+# endif()
 
 if ( NOT(${PRECISION} EQUAL 1) AND
      NOT(${PRECISION} EQUAL 2) AND 
