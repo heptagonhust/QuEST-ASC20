@@ -224,7 +224,13 @@ void statevec_unitary(Qureg qureg, const int targetQubit, ComplexMatrix2 u)
 
 void statevec_controlledCompactUnitary(Qureg qureg, const int controlQubit, const int targetQubit, Complex alpha, Complex beta) 
 {
-    statevec_controlledCompactUnitaryLocal(qureg, controlQubit, targetQubit, alpha, beta);
+    if ((qureg.numAmpsPerChunk >> (targetQubit + 1) ) >= 16) {
+        statevec_controlledCompactUnitaryLocalSmall(qureg, controlQubit, targetQubit, alpha, beta);
+    } else {
+        statevec_controlledCompactUnitaryLocal(qureg, controlQubit, targetQubit, alpha, beta);
+    }
+    // statevec_controlledCompactUnitaryLocal(qureg, controlQubit, targetQubit, alpha, beta);
+
 }
 
 void statevec_controlledUnitary(Qureg qureg, const int controlQubit, const int targetQubit, ComplexMatrix2 u) 

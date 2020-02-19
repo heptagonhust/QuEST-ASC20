@@ -113,6 +113,9 @@ void statevec_unitaryDistributed (Qureg qureg,
 void statevec_controlledCompactUnitaryLocal (Qureg qureg, const int controlQubit, const int targetQubit,
         Complex alpha, Complex beta);
 
+void statevec_controlledCompactUnitaryLocalSmall (Qureg qureg, const int controlQubit, const int targetQubit,
+        Complex alpha, Complex beta);
+
 void statevec_controlledCompactUnitaryDistributed (Qureg qureg, const int controlQubit,
         Complex rot1, Complex rot2,
         ComplexArray stateVecUp,
