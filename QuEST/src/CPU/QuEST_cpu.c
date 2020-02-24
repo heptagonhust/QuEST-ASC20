@@ -2071,7 +2071,7 @@ void statevec_controlledCompactUnitaryLocal (Qureg qureg, const int controlQubit
     qreal alphaImag=alpha.imag, alphaReal=alpha.real;
     qreal betaImag=beta.imag, betaReal=beta.real;
 
-    __m256d avxDataBetaAlpha,avxDataAlphaBeta,avxDataState,avxDataA,avxDataB,avxDataC,avxDataD;
+    __m256d avxDataBetaAlpha,avxDataAlphaBeta,avxDataState,avxDataStateR,avxDataA,avxDataB,avxDataC,avxDataD;
 
     avxDataAlphaBeta = _mm256_set_pd(alphaReal,alphaImag,betaReal,betaImag);
     avxDataBetaAlpha = _mm256_set_pd(betaReal,betaImag,alphaReal,alphaImag);
@@ -2079,7 +2079,7 @@ void statevec_controlledCompactUnitaryLocal (Qureg qureg, const int controlQubit
 # ifdef _OPENMP
 # pragma omp parallel\
     shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag, alphaReal,alphaImag, betaReal,betaImag,avxDataBetaAlpha,avxDataAlphaBeta) \
-    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp,stateRealLo,stateImagLo,controlBit,avxDataState,avxDataA,avxDataB,avxDataC,avxDataD) 
+    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp,stateRealLo,stateImagLo,controlBit,avxDataState,avxDataStateR,avxDataA,avxDataB,avxDataC,avxDataD) 
 # endif
     {
 # ifdef _OPENMP
@@ -2101,37 +2101,34 @@ void statevec_controlledCompactUnitaryLocal (Qureg qureg, const int controlQubit
                 stateRealLo = stateVecReal[indexLo];
                 stateImagLo = stateVecImag[indexLo];
                 
-
-               double storeData[4];
+                double storeData[4];
 
                 avxDataState = _mm256_set_pd(stateRealUp,stateImagUp,stateRealLo,stateImagLo);
+                avxDataStateR = _mm256_set_pd(stateImagUp,stateRealUp,stateImagLo,stateRealLo);
                 // state[indexUp] = alpha * state[indexUp] - conj(beta)  * state[indexLo]
 
-                //avxDataA = _mm256_mul_pd(_mm256_mul_pd(avxDataAlphaBeta,avxDataState),_mm256_set_pd(1,-1,-1,-1));
                 avxDataA = _mm256_mul_pd(avxDataAlphaBeta,avxDataState);
                 //stateVecReal[indexUp] = alphaReal*stateRealUp - alphaImag*stateImagUp 
                 //    - betaReal*stateRealLo - betaImag*stateImagLo;
                 _mm256_storeu_pd(storeData,avxDataA);
+                printf("2114: %lf,%lf,%lf,%lf",storeData[0],storeData[1],storeData[2],storeData[3]);
                 stateVecReal[indexUp] = storeData[0]-storeData[1]-storeData[2]-storeData[3];
 
-                //avxDataB = _mm256_mul_pd(_mm256_mul_pd(avxDataAlphaBeta,_mm256_permute_pd(avxDataState,0b0101)),_mm256_set_pd(1,1,-1,1));
-                avxDataB = _mm256_mul_pd(avxDataAlphaBeta,_mm256_permute_pd(avxDataState,0b0101));
-                //stateVecImag[indexUp] = alphaReal*stateImagUp + alphaImag*stateRealUp 
+                avxDataB = _mm256_mul_pd(avxDataAlphaBeta,avxDataStateR);
+                //stateVecImag[indexUp] = alphaReal*stateImagUp + alphnaImag*stateRealUp 
                 //    - betaReal*stateImagLo + betaImag*stateRealLo;
                 _mm256_storeu_pd(storeData,avxDataB);
                 stateVecImag[indexUp] = storeData[0]+storeData[1]-storeData[2]+storeData[3];
 
                 // state[indexLo] = beta  * state[indexUp] + conj(alpha) * state[indexLo]
-
-                //avxDataC =_mm256_mul_pd(_mm256_mul_pd(avxDataAlphaBeta,avxDataState),_mm256_set_pd(1,1,1,-1));   
+  
                 avxDataC = _mm256_mul_pd(avxDataBetaAlpha,avxDataState);
                 //stateVecReal[indexLo] = betaReal*stateRealUp - betaImag*stateImagUp 
                 //    + alphaReal*stateRealLo + alphaImag*stateImagLo;
                 _mm256_storeu_pd(storeData,avxDataC);
                 stateVecReal[indexLo] = storeData[0]-storeData[1]+storeData[2]+storeData[3];
                 
-                //avxDataD = _mm256_mul_pd(_mm256_mul_pd(avxDataAlphaBeta,_mm256_permute_pd(avxDataState,0b0101)),_mm256_set_pd(1,-1,1,1));
-                avxDataD = _mm256_mul_pd(avxDataBetaAlpha,_mm256_permute_pd(avxDataState,0b0101));
+                avxDataD = _mm256_mul_pd(avxDataBetaAlpha,avxDataStateR);
                 //stateVecImag[indexLo] = betaReal*stateImagUp + betaImag*stateRealUp 
                 //    + alphaReal*stateImagLo - alphaImag*stateRealLo;
                 _mm256_storeu_pd(storeData,avxDataD);
