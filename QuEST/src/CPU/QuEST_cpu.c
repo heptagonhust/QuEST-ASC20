@@ -22,6 +22,7 @@
 # include <stdlib.h>
 # include <stdint.h>
 # include <assert.h>
+# include <avxintrin.h>
 
 # ifdef _OPENMP
 # include <omp.h>
@@ -2097,11 +2098,15 @@ void statevec_controlledCompactUnitaryLocal (Qureg qureg, const int controlQubit
     qreal alphaImag=alpha.imag, alphaReal=alpha.real;
     qreal betaImag=beta.imag, betaReal=beta.real;
 
+    __m256d avxDataAlphaBeta,avxDataState,avxDataA,avxDataB,avxDataC,avxDataD;
+
+    avxDataAlphaBeta = _mm256_set_pd(alphaReal,alphaImag,betaReal,betaImag);
+
 # ifdef _OPENMP
 # pragma omp parallel \
     default  (none) \
-    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag, alphaReal,alphaImag, betaReal,betaImag) \
-    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp,stateRealLo,stateImagLo,controlBit) 
+    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag, alphaReal,alphaImag, betaReal,betaImag,avxDataAlphaBeta) \
+    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp,stateRealLo,stateImagLo,controlBit,avxDataState,avxDataA,avxDataB,avxDataC,avxDataD) 
 # endif
     {
 # ifdef _OPENMP
@@ -2116,23 +2121,49 @@ void statevec_controlledCompactUnitaryLocal (Qureg qureg, const int controlQubit
             controlBit = extractBit (controlQubit, indexUp+chunkId*chunkSize);
             if (controlBit){
                 // store current state vector values in temp variables
+                /*
                 stateRealUp = stateVecReal[indexUp];
                 stateImagUp = stateVecImag[indexUp];
 
                 stateRealLo = stateVecReal[indexLo];
                 stateImagLo = stateVecImag[indexLo];
+                */
 
+               double storeData[4];
+
+                avxDataState = _mm256_set_pd(stateVecReal[indexUp],stateVecImag[indexUp],stateVecReal[indexLo],stateVecImag[indexLo]);
                 // state[indexUp] = alpha * state[indexUp] - conj(beta)  * state[indexLo]
-                stateVecReal[indexUp] = alphaReal*stateRealUp - alphaImag*stateImagUp 
-                    - betaReal*stateRealLo - betaImag*stateImagLo;
-                stateVecImag[indexUp] = alphaReal*stateImagUp + alphaImag*stateRealUp 
-                    - betaReal*stateImagLo + betaImag*stateRealLo;
 
+                //avxDataA = _mm256_mul_pd(_mm256_mul_pd(avxDataAlphaBeta,avxDataState),_mm256_set_pd(1,-1,-1,-1));
+                avxDataA = _mm256_mul_pd(avxDataAlphaBeta,avxDataState);
+                //stateVecReal[indexUp] = alphaReal*stateRealUp - alphaImag*stateImagUp 
+                //    - betaReal*stateRealLo - betaImag*stateImagLo;
+                _mm256_storeu_pd(storeData,avxDataA);
+                stateVecReal[indexUp] = storeData[0]-storeData[1]-storeData[2]-storeData[3];
+
+                //avxDataB = _mm256_mul_pd(_mm256_mul_pd(avxDataAlphaBeta,_mm256_permute_pd(avxDataState,0b0101)),_mm256_set_pd(1,1,-1,1));
+                avxDataB = _mm256_mul_pd(avxDataAlphaBeta,_mm256_permute_pd(avxDataState,0b0101));
+                //stateVecImag[indexUp] = alphaReal*stateImagUp + alphaImag*stateRealUp 
+                //    - betaReal*stateImagLo + betaImag*stateRealLo;
+                _mm256_storeu_pd(storeData,avxDataB);
+                stateVecImag[indexUp] = storeData[0]+storeData[1]-storeData[2]+storeData[3];
+
+                avxDataState = _mm256_set_pd(stateVecReal[indexLo],stateVecImag[indexLo],stateVecReal[indexUp],stateVecImag[indexUp]);
                 // state[indexLo] = beta  * state[indexUp] + conj(alpha) * state[indexLo]
-                stateVecReal[indexLo] = betaReal*stateRealUp - betaImag*stateImagUp 
-                    + alphaReal*stateRealLo + alphaImag*stateImagLo;
-                stateVecImag[indexLo] = betaReal*stateImagUp + betaImag*stateRealUp 
-                    + alphaReal*stateImagLo - alphaImag*stateRealLo;
+
+                //avxDataC =_mm256_mul_pd(_mm256_mul_pd(avxDataAlphaBeta,avxDataState),_mm256_set_pd(1,1,1,-1));   
+                avxDataC = _mm256_mul_pd(avxDataAlphaBeta,avxDataState);
+                //stateVecReal[indexLo] = betaReal*stateRealUp - betaImag*stateImagUp 
+                //    + alphaReal*stateRealLo + alphaImag*stateImagLo;
+                _mm256_storeu_pd(storeData,avxDataC);
+                stateVecReal[indexLo] = storeData[0]+storeData[1]+storeData[2]-storeData[3];
+                
+                //avxDataD = _mm256_mul_pd(_mm256_mul_pd(avxDataAlphaBeta,_mm256_permute_pd(avxDataState,0b0101)),_mm256_set_pd(1,-1,1,1));
+                avxDataD = _mm256_mul_pd(avxDataAlphaBeta,_mm256_permute_pd(avxDataState,0b0101));
+                //stateVecImag[indexLo] = betaReal*stateImagUp + betaImag*stateRealUp 
+                //    + alphaReal*stateImagLo - alphaImag*stateRealLo;
+                _mm256_storeu_pd(storeData,avxDataD);
+                stateVecImag[indexLo] = storeData[0]-storeData[1]+storeData[2]+storeData[3];
             }
         } 
     }
