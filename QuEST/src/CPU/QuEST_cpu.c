@@ -2112,13 +2112,13 @@ void statevec_controlledCompactUnitaryLocal (Qureg qureg, const int controlQubit
                 //    - betaReal*stateRealLo - betaImag*stateImagLo;
                 _mm256_storeu_pd(storeData,avxDataA);
                 printf("2114: %lf,%lf,%lf,%lf",storeData[0],storeData[1],storeData[2],storeData[3]);
-                stateVecReal[indexUp] = storeData[0]-storeData[1]-storeData[2]-storeData[3];
+                stateVecReal[indexUp] = storeData[3]-storeData[2]-storeData[1]-storeData[0];
 
                 avxDataB = _mm256_mul_pd(avxDataAlphaBeta,avxDataStateR);
                 //stateVecImag[indexUp] = alphaReal*stateImagUp + alphnaImag*stateRealUp 
                 //    - betaReal*stateImagLo + betaImag*stateRealLo;
                 _mm256_storeu_pd(storeData,avxDataB);
-                stateVecImag[indexUp] = storeData[0]+storeData[1]-storeData[2]+storeData[3];
+                stateVecImag[indexUp] = storeData[3]+storeData[2]-storeData[1]+storeData[0];
 
                 // state[indexLo] = beta  * state[indexUp] + conj(alpha) * state[indexLo]
   
@@ -2126,13 +2126,13 @@ void statevec_controlledCompactUnitaryLocal (Qureg qureg, const int controlQubit
                 //stateVecReal[indexLo] = betaReal*stateRealUp - betaImag*stateImagUp 
                 //    + alphaReal*stateRealLo + alphaImag*stateImagLo;
                 _mm256_storeu_pd(storeData,avxDataC);
-                stateVecReal[indexLo] = storeData[0]-storeData[1]+storeData[2]+storeData[3];
+                stateVecReal[indexLo] = storeData[3]-storeData[2]+storeData[1]+storeData[0];
                 
                 avxDataD = _mm256_mul_pd(avxDataBetaAlpha,avxDataStateR);
                 //stateVecImag[indexLo] = betaReal*stateImagUp + betaImag*stateRealUp 
                 //    + alphaReal*stateImagLo - alphaImag*stateRealLo;
                 _mm256_storeu_pd(storeData,avxDataD);
-                stateVecImag[indexLo] = storeData[0]+storeData[1]+storeData[2]-storeData[3];
+                stateVecImag[indexLo] = storeData[3]+storeData[2]+storeData[1]-storeData[0];
             }
         } 
     }

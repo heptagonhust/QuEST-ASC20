@@ -1,0 +1,7 @@
+{
+  "C_Cpp.default.configurationProvider": "vector-of-bool.cmake-tools",
+  "files.associations": {
+    "avxintrin.h": "c",
+    "immintrin.h": "c"
+  }
+}
