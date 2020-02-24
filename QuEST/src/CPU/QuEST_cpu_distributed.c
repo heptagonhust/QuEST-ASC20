@@ -560,8 +560,7 @@ void compressPairVectorForSingleQubitDepolarise(Qureg qureg, const int targetQub
     sizeOuterColumn     = 2LL * sizeOuterHalfColumn;
 
 # ifdef _OPENMP
-# pragma omp parallel \
-    default  (none) \
+# pragma omp parallel\
     shared   (sizeInnerBlock,sizeInnerHalfBlock,sizeOuterColumn,sizeOuterHalfColumn,qureg) \
     private  (thisTask,thisInnerBlock,thisOuterColumn,thisIndex,thisIndexInOuterColumn, \
                 thisIndexInInnerBlock,outerBit) 
@@ -634,8 +633,7 @@ void compressPairVectorForTwoQubitDepolarise(Qureg qureg, const int targetQubit,
     sizeOuterQuarterColumn = sizeOuterColumn >> 2;
  
 # ifdef _OPENMP
-# pragma omp parallel \
-    default  (none) \
+# pragma omp parallel\
     shared   (sizeInnerBlockQ1,sizeInnerHalfBlockQ1,sizeInnerQuarterBlockQ2,sizeInnerHalfBlockQ2,sizeInnerBlockQ2, \
                 sizeOuterColumn, \
                 sizeOuterQuarterColumn,qureg) \
