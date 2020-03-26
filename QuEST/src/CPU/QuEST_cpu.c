@@ -2108,7 +2108,8 @@ void statevec_controlledCompactUnitaryLocal (Qureg qureg, const int controlQubit
                 stateImagLo = stateVecImag[indexLo];
 
                 avxDataState = _mm256_set_pd(stateRealLo,stateRealUp,stateImagUp,stateImagLo);
-                avxDataStateR = _mm256_set_pd(stateImagLo,stateImagUp,stateRealUp,stateRealLo);
+                avxDataStateR = _mm256_permute2f128_pd(avxDataState,avxDataState,1);
+                avxDataStateR = _mm256_permute_pd(avxDataStateR,5);
 
                 avxDataA = _mm256_mul_pd(avxAR,avxDataState);
                 avxDataB = _mm256_mul_pd(avxAI,avxDataStateR);
@@ -2349,6 +2350,9 @@ void statevec_controlledCompactUnitaryDistributed (Qureg qureg, const int contro
 # pragma omp for schedule (static)
 # endif
         for (thisTask=0; thisTask<numTasks; thisTask++) {
+
+            
+
             controlBit = extractBit (controlQubit, thisTask+chunkId*chunkSize);
             if (controlBit){
                 // store current state vector values in temp variables
@@ -2895,11 +2899,29 @@ void statevec_hadamardLocal(Qureg qureg, const int targetQubit)
             stateRealLo = stateVecReal[indexLo];
             stateImagLo = stateVecImag[indexLo];
 
-            stateVecReal[indexUp] = recRoot2*(stateRealUp + stateRealLo);
-            stateVecImag[indexUp] = recRoot2*(stateImagUp + stateImagLo);
+            __m256d stateUp,stateLo;
+            stateUp = _mm256_set_pd(stateRealUp,stateRealUp,stateImagUp,stateImagUp);
+            stateLo = _mm256_set_pd(stateRealLo,stateRealLo,stateImagLo,stateImagLo);
 
-            stateVecReal[indexLo] = recRoot2*(stateRealUp - stateRealLo);
-            stateVecImag[indexLo] = recRoot2*(stateImagUp - stateImagLo);
+            stateUp = _mm256_addsub_pd(stateUp,stateLo);
+            stateUp = _mm256_mul_pd(stateUp,_mm256_set1_pd(recRoot2));
+
+            double res[4];
+            _mm256_storeu_pd(res,stateUp);
+
+            stateVecReal[indexUp] = res[0];
+            stateVecImag[indexUp] = res[2];
+
+            stateVecReal[indexLo] = res[1];
+            stateVecImag[indexLo] = res[3];
+
+
+
+            //stateVecReal[indexUp] = recRoot2*(stateRealUp + stateRealLo);
+            //stateVecImag[indexUp] = recRoot2*(stateImagUp + stateImagLo);
+
+            //stateVecReal[indexLo] = recRoot2*(stateRealUp - stateRealLo);
+            //stateVecImag[indexLo] = recRoot2*(stateImagUp - stateImagLo);
         } 
     }
 }
