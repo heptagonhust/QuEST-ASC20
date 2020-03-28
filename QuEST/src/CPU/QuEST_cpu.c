@@ -22,6 +22,7 @@
 # include <stdlib.h>
 # include <stdint.h>
 # include <assert.h>
+# include <immintrin.h>
 
 # ifdef _OPENMP
 # include <omp.h>
@@ -2072,73 +2073,154 @@ void statevec_unitaryDistributed (Qureg qureg,
     }
 }
 
-void statevec_controlledCompactUnitaryLocalSmall (Qureg qureg, const int controlQubit, const int targetQubit, 
-        Complex alpha, Complex beta) 
-{
-    long long int sizeBlock, sizeHalfBlock;
-    long long int thisBlock, // current block
-         indexUp,indexLo;    // current index and corresponding index in lower half block
+void statevec_controlledCompactUnitaryLocalSmall(Qureg qureg,
+                                                 const int controlQubit,
+                                                 const int targetQubit,
+                                                 Complex alpha, Complex beta) {
+  long long int sizeBlock, sizeHalfBlock;
+  long long int thisBlock,  // current block
+      indexUp,
+      indexLo;  // current index and corresponding index in lower half block
 
-    qreal stateRealUp,stateRealLo,stateImagUp,stateImagLo;
-    long long int thisTask;         
-    const long long int numTasks = (1LL << (targetQubit - controlQubit - 1));
-    const long long int chunkSize=qureg.numAmpsPerChunk;
-    const long long int chunkId=qureg.chunkId;
-    const long long int numBlocks = qureg.numAmpsPerChunk>>(1 + targetQubit);
-    const long long int sizeTask = (1LL << controlQubit);
+  qreal stateRealUp, stateRealLo, stateImagUp, stateImagLo;
+  long long int thisTask;
+  const long long int numTasks = (1LL << (targetQubit - controlQubit - 1));
+  const long long int chunkSize = qureg.numAmpsPerChunk;
+  const long long int chunkId = qureg.chunkId;
+  const long long int numBlocks = qureg.numAmpsPerChunk >> (1 + targetQubit);
+  const long long int sizeTask = (1LL << controlQubit);
 
-    int controlBit;
+  int controlBit;
 
-    // set dimensions
-    sizeHalfBlock = 1LL << targetQubit;  
-    sizeBlock     = 2LL * sizeHalfBlock; 
+  // set dimensions
+  sizeHalfBlock = 1LL << targetQubit;
+  sizeBlock = 2LL * sizeHalfBlock;
 
-    // Can't use qureg.stateVec as a private OMP var
-    qreal *stateVecReal = qureg.stateVec.real;
-    qreal *stateVecImag = qureg.stateVec.imag;
-    qreal alphaImag=alpha.imag, alphaReal=alpha.real;
-    qreal betaImag=beta.imag, betaReal=beta.real;
+  // Can't use qureg.stateVec as a private OMP var
+  qreal *stateVecReal = qureg.stateVec.real;
+  qreal *stateVecImag = qureg.stateVec.imag;
+  qreal alphaImag = alpha.imag, alphaReal = alpha.real;
+  qreal betaImag = beta.imag, betaReal = beta.real;
 
-# ifdef _OPENMP
-# pragma omp parallel \
-    default  (none) \
-    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag, alphaReal,alphaImag, betaReal,betaImag) \
-    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp,stateRealLo,stateImagLo,controlBit) 
-# endif
-    {
-# ifdef _OPENMP
-# pragma omp for schedule (static) 
-# endif
-        for (thisBlock = 0; thisBlock < numBlocks; ++thisBlock) {
-            for(thisTask = 0; thisTask < numTasks; ++thisTask)
-            for(indexUp = thisBlock * sizeBlock + thisTask * sizeTask * 2; indexUp < thisBlock * sizeBlock + thisTask * sizeTask * 2 + sizeTask; ++indexUp) {
+#ifdef _OPENMP
+#pragma omp parallel default(none) shared(                                \
+    sizeBlock, sizeHalfBlock, stateVecReal, stateVecImag, alphaReal,      \
+    alphaImag, betaReal,                                                  \
+    betaImag) private(thisTask, thisBlock, indexUp, indexLo, stateRealUp, \
+                      stateImagUp, stateRealLo, stateImagLo, controlBit)
+#endif
+  {
+#ifdef _OPENMP
+#pragma omp for schedule(static)
+#endif
+    for (thisBlock = 0; thisBlock < numBlocks; ++thisBlock) {
+      for (thisTask = 0; thisTask < numTasks; ++thisTask){
+        if (sizeTask < 4) {
+          for (indexUp = thisBlock * sizeBlock + thisTask * sizeTask * 2;
+               indexUp <
+               thisBlock * sizeBlock + thisTask * sizeTask * 2 + sizeTask;
+               ++indexUp) {
+            indexLo = indexUp + sizeHalfBlock;
 
-                indexLo     = indexUp + sizeHalfBlock;
+            // controlBit = extractBit (controlQubit,
+            // indexUp+chunkId*chunkSize); if (controlBit){ store current
+            // state vector values in temp variables
+            stateRealUp = stateVecReal[indexUp];
+            stateImagUp = stateVecImag[indexUp];
 
-                // controlBit = extractBit (controlQubit, indexUp+chunkId*chunkSize);
-                // if (controlBit){
-                    // store current state vector values in temp variables
-                    stateRealUp = stateVecReal[indexUp];
-                    stateImagUp = stateVecImag[indexUp];
+            stateRealLo = stateVecReal[indexLo];
+            stateImagLo = stateVecImag[indexLo];
 
-                    stateRealLo = stateVecReal[indexLo];
-                    stateImagLo = stateVecImag[indexLo];
+            // state[indexUp] = alpha * state[indexUp] - conj(beta)  *
+            // state[indexLo]
+            stateVecReal[indexUp] =
+                alphaReal * stateRealUp - alphaImag * stateImagUp -
+                betaReal * stateRealLo - betaImag * stateImagLo;
+            stateVecImag[indexUp] =
+                alphaReal * stateImagUp + alphaImag * stateRealUp -
+                betaReal * stateImagLo + betaImag * stateRealLo;
 
-                    // state[indexUp] = alpha * state[indexUp] - conj(beta)  * state[indexLo]
-                    stateVecReal[indexUp] = alphaReal*stateRealUp - alphaImag*stateImagUp 
-                        - betaReal*stateRealLo - betaImag*stateImagLo;
-                    stateVecImag[indexUp] = alphaReal*stateImagUp + alphaImag*stateRealUp 
-                        - betaReal*stateImagLo + betaImag*stateRealLo;
+            // state[indexLo] = beta  * state[indexUp] + conj(alpha) *
+            // state[indexLo]
+            stateVecReal[indexLo] =
+                betaReal * stateRealUp - betaImag * stateImagUp +
+                alphaReal * stateRealLo + alphaImag * stateImagLo;
+            stateVecImag[indexLo] =
+                betaReal * stateImagUp + betaImag * stateRealUp +
+                alphaReal * stateImagLo - alphaImag * stateRealLo;
+            // }
+          }
+        }else{
+            for (indexUp = thisBlock * sizeBlock + thisTask * sizeTask * 2;
+               indexUp <
+               thisBlock * sizeBlock + thisTask * sizeTask * 2 + sizeTask;
+               indexUp+=4) {
+            indexLo = indexUp + sizeHalfBlock;
 
-                    // state[indexLo] = beta  * state[indexUp] + conj(alpha) * state[indexLo]
-                    stateVecReal[indexLo] = betaReal*stateRealUp - betaImag*stateImagUp 
-                        + alphaReal*stateRealLo + alphaImag*stateImagLo;
-                    stateVecImag[indexLo] = betaReal*stateImagUp + betaImag*stateRealUp 
-                        + alphaReal*stateImagLo - alphaImag*stateRealLo;
-                // }
-            }
-        } 
+            // controlBit = extractBit (controlQubit,
+            // indexUp+chunkId*chunkSize); if (controlBit){ store current
+            // state vector values in temp variables
+
+            __m256d stateRealUpAVX,stateImagUpAVX,stateRealLoAVX,stateImagLoAVX;
+            __m256d alphaRealAVX = _mm256_set1_pd(alphaReal);
+            __m256d alphaImagVAX = _mm256_set1_pd(alphaImag);
+            __m256d betaRealAVX = _mm256_set1_pd(betaReal);
+            __m256d betaImagAVX = _mm256_set1_pd(betaImag);
+
+            stateRealUpAVX = _mm256_loadu_pd(stateVecReal+indexUp);
+            stateImagUpAVX = _mm256_loadu_pd(stateVecImag+indexUp);
+            stateRealLoAVX = _mm256_loadu_pd(stateVecReal+indexLo);
+            stateImagLoAVX = _mm256_loadu_pd(stateVecImag+indexLo);
+
+            stateRealUp = stateVecReal[indexUp];
+            stateImagUp = stateVecImag[indexUp];
+
+            stateRealLo = stateVecReal[indexLo];
+            stateImagLo = stateVecImag[indexLo];
+
+            // state[indexUp] = alpha * state[indexUp] - conj(beta)  *
+            // state[indexLo]
+
+            __m256d res =  _mm256_mul_pd(alphaRealAVX,stateRealUpAVX);
+            res = _mm256_hsub_pd(res,_mm256_mul_pd(alphaImagVAX,stateImagUpAVX));
+            res = _mm256_hsub_pd(res,_mm256_mul_pd(betaRealAVX,stateRealLoAVX));
+            res = _mm256_hsub_pd(res,_mm256_mul_pd(betaImagAVX,stateImagLoAVX));
+
+            _mm256_storeu_pd(stateVecReal+indexUp,res);
+
+            stateVecReal[indexUp] =
+                alphaReal * stateRealUp - alphaImag * stateImagUp -
+                betaReal * stateRealLo - betaImag * stateImagLo;
+
+
+
+            __m256d res =  _mm256_mul_pd(alphaRealAVX,stateImagUpAVX);
+            res = _mm256_add_pd(res,_mm256_mul_pd(alphaImagVAX,stateRealUpAVX));
+            res = _mm256_hsub_pd(res,_mm256_mul_pd(betaRealAVX,stateImagLoAVX));
+            res = _mm256_add_pd(res,_mm256_mul_pd(betaImagAVX,stateRealLoAVX));
+
+            _mm256_storeu_pd(stateVecImag+indexUp,res);
+
+            stateVecImag[indexUp] =
+                alphaReal * stateImagUp + alphaImag * stateRealUp -
+                betaReal * stateImagLo + betaImag * stateRealLo;
+
+
+
+            // state[indexLo] = beta  * state[indexUp] + conj(alpha) *
+            // state[indexLo]
+            stateVecReal[indexLo] =
+                betaReal * stateRealUp - betaImag * stateImagUp +
+                alphaReal * stateRealLo + alphaImag * stateImagLo;
+            stateVecImag[indexLo] =
+                betaReal * stateImagUp + betaImag * stateRealUp +
+                alphaReal * stateImagLo - alphaImag * stateRealLo;
+            // }
+          }
+        }
+      }
     }
+  }
 }
 
 void statevec_controlledCompactUnitaryLocal (Qureg qureg, const int controlQubit, const int targetQubit, 
