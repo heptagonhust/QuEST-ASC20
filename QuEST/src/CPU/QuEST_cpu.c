@@ -1639,6 +1639,62 @@ int statevec_compareStates(Qureg mq1, Qureg mq2, qreal precision){
     return 1;
 }
 
+void statevec_compactUnitaryLocalSmall (Qureg qureg, const int targetQubit, Complex alpha, Complex beta)
+{
+    long long int sizeBlock, sizeHalfBlock;
+    long long int thisBlock, // current block
+         indexUp,indexLo;    // current index and corresponding index in lower half block
+
+    qreal stateRealUp,stateRealLo,stateImagUp,stateImagLo;
+    
+    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
+    const long long int sizeTask = (1LL << targetQubit);
+    long long thisTask;
+
+
+    // Can't use qureg.stateVec as a private OMP var
+    qreal *stateVecReal = qureg.stateVec.real;
+    qreal *stateVecImag = qureg.stateVec.imag;
+    qreal alphaImag=alpha.imag, alphaReal=alpha.real;
+    qreal betaImag=beta.imag, betaReal=beta.real;
+
+# ifdef _OPENMP
+# pragma omp parallel \
+    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag, alphaReal,alphaImag, betaReal,betaImag) \
+    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp,stateRealLo,stateImagLo) 
+# endif
+    {
+# ifdef _OPENMP
+# pragma omp for schedule (static)
+# endif
+        for (thisTask = 0; thisTask < numTasks; ++thisTask) 
+        for (indexUp = thisTask * sizeTask * 2; indexUp < thisTask * sizeTask * 2 + sizeTask; ++ indexUp) {
+
+            indexLo     = indexUp + sizeTask;
+
+            // store current state vector values in temp variables
+            stateRealUp = stateVecReal[indexUp];
+            stateImagUp = stateVecImag[indexUp];
+
+            stateRealLo = stateVecReal[indexLo];
+            stateImagLo = stateVecImag[indexLo];
+
+            // state[indexUp] = alpha * state[indexUp] - conj(beta)  * state[indexLo]
+            stateVecReal[indexUp] = alphaReal*stateRealUp - alphaImag*stateImagUp 
+                - betaReal*stateRealLo - betaImag*stateImagLo;
+            stateVecImag[indexUp] = alphaReal*stateImagUp + alphaImag*stateRealUp 
+                - betaReal*stateImagLo + betaImag*stateRealLo;
+
+            // state[indexLo] = beta  * state[indexUp] + conj(alpha) * state[indexLo]
+            stateVecReal[indexLo] = betaReal*stateRealUp - betaImag*stateImagUp 
+                + alphaReal*stateRealLo + alphaImag*stateImagLo;
+            stateVecImag[indexLo] = betaReal*stateImagUp + betaImag*stateRealUp 
+                + alphaReal*stateImagLo - alphaImag*stateRealLo;
+        } 
+    }
+
+} 
+
 void statevec_compactUnitaryLocal (Qureg qureg, const int targetQubit, Complex alpha, Complex beta)
 {
     long long int sizeBlock, sizeHalfBlock;
@@ -2055,17 +2111,16 @@ void statevec_controlledCompactUnitaryLocalSmall (Qureg qureg, const int control
 
     qreal stateRealUp,stateRealLo,stateImagUp,stateImagLo;
     long long int thisTask;         
-    const long long int numTasks = (1LL << (targetQubit - controlQubit - 1));
+    const long long int numTasks = ((targetQubit > controlQubit) ? (1LL << (targetQubit - controlQubit - 1)) : (1LL << (controlQubit - targetQubit - 1)));
     const long long int chunkSize=qureg.numAmpsPerChunk;
     const long long int chunkId=qureg.chunkId;
-    const long long int numBlocks = qureg.numAmpsPerChunk>>(1 + targetQubit);
-    const long long int sizeTask = (1LL << controlQubit);
+    const long long int numBlocks = ((targetQubit > controlQubit) ? (qureg.numAmpsPerChunk>>(1 + targetQubit)) : (qureg.numAmpsPerChunk>>(1 + controlQubit)));
+    const long long int sizeTask = ((targetQubit > controlQubit) ? (1LL << controlQubit) : (1LL << targetQubit));
 
-    int controlBit;
 
     // set dimensions
     sizeHalfBlock = 1LL << targetQubit;  
-    sizeBlock     = 2LL * sizeHalfBlock; 
+    sizeBlock     = ((targetQubit > controlQubit) ? (2LL * sizeHalfBlock) : (2LL << controlQubit)); 
 
     // Can't use qureg.stateVec as a private OMP var
     qreal *stateVecReal = qureg.stateVec.real;
@@ -2076,7 +2131,7 @@ void statevec_controlledCompactUnitaryLocalSmall (Qureg qureg, const int control
 # ifdef _OPENMP
 # pragma omp parallel \
     shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag, alphaReal,alphaImag, betaReal,betaImag) \
-    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp,stateRealLo,stateImagLo,controlBit) 
+    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp,stateRealLo,stateImagLo) 
 # endif
     {
 # ifdef _OPENMP
@@ -2505,6 +2560,48 @@ void statevec_multiControlledUnitaryDistributed (
     }
 }
 
+void statevec_pauliXLocalSmall(Qureg qureg, const int targetQubit)
+{
+    long long int sizeBlock, sizeHalfBlock;
+    long long int thisBlock, // current block
+         indexUp,indexLo;    // current index and corresponding index in lower half block
+
+    qreal stateRealUp,stateImagUp;
+    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
+    const long long int sizeTask = (1LL << targetQubit);
+    long long thisTask; 
+
+    // Can't use qureg.stateVec as a private OMP var
+    qreal *stateVecReal = qureg.stateVec.real;
+    qreal *stateVecImag = qureg.stateVec.imag;
+
+# ifdef _OPENMP
+# pragma omp parallel \
+    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag) \
+    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp) 
+# endif
+    {
+# ifdef _OPENMP
+# pragma omp for schedule (static)
+# endif
+        for (thisTask = 0; thisTask < numTasks; ++thisTask) 
+        for (indexUp = thisTask * sizeTask * 2; indexUp < thisTask * sizeTask * 2 + sizeTask; ++ indexUp) {
+
+            indexLo     = indexUp + sizeHalfBlock;
+
+            stateRealUp = stateVecReal[indexUp];
+            stateImagUp = stateVecImag[indexUp];
+
+            stateVecReal[indexUp] = stateVecReal[indexLo];
+            stateVecImag[indexUp] = stateVecImag[indexLo];
+
+            stateVecReal[indexLo] = stateRealUp;
+            stateVecImag[indexLo] = stateImagUp;
+        } 
+    }
+
+}
+
 void statevec_pauliXLocal(Qureg qureg, const int targetQubit)
 {
     long long int sizeBlock, sizeHalfBlock;
@@ -2588,6 +2685,56 @@ void statevec_pauliXDistributed (Qureg qureg,
         }
     }
 } 
+void statevec_controlledNotLocalSmall(Qureg qureg, const int controlQubit, const int targetQubit)
+{
+    long long int sizeBlock, sizeHalfBlock;
+    long long int thisBlock, // current block
+         indexUp,indexLo;    // current index and corresponding index in lower half block
+
+    qreal stateRealUp,stateImagUp;
+
+    long long int thisTask;         
+    const long long int numTasks = ((targetQubit > controlQubit) ? (1LL << (targetQubit - controlQubit - 1)) : (1LL << (controlQubit - targetQubit - 1)));
+    const long long int chunkSize=qureg.numAmpsPerChunk;
+    const long long int chunkId=qureg.chunkId;
+    const long long int numBlocks = ((targetQubit > controlQubit) ? (qureg.numAmpsPerChunk>>(1 + targetQubit)) : (qureg.numAmpsPerChunk>>(1 + controlQubit)));
+    const long long int sizeTask = ((targetQubit > controlQubit) ? (1LL << controlQubit) : (1LL << targetQubit));
+    
+    sizeHalfBlock = 1LL << targetQubit;  
+    sizeBlock     = ((targetQubit > controlQubit) ? (2LL * sizeHalfBlock) : (2LL << controlQubit)); 
+
+
+    // Can't use qureg.stateVec as a private OMP var
+    qreal *stateVecReal = qureg.stateVec.real;
+    qreal *stateVecImag = qureg.stateVec.imag;
+
+# ifdef _OPENMP
+# pragma omp parallel \
+    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag) \
+    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp) 
+# endif
+    {
+# ifdef _OPENMP
+# pragma omp for schedule (static)
+# endif
+        for (thisBlock = 0; thisBlock < numBlocks; ++thisBlock) {
+            for(thisTask = 0; thisTask < numTasks; ++thisTask)
+            for(indexUp = thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask; indexUp < thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask * 2; ++indexUp) {
+            
+                indexLo     = indexUp + sizeHalfBlock;
+
+                stateRealUp = stateVecReal[indexUp];
+                stateImagUp = stateVecImag[indexUp];
+
+                stateVecReal[indexUp] = stateVecReal[indexLo];
+                stateVecImag[indexUp] = stateVecImag[indexLo];
+
+                stateVecReal[indexLo] = stateRealUp;
+                stateVecImag[indexLo] = stateImagUp;
+            }
+        } 
+    }
+}
 
 void statevec_controlledNotLocal(Qureg qureg, const int controlQubit, const int targetQubit)
 {
@@ -2684,6 +2831,46 @@ void statevec_controlledNotDistributed (Qureg qureg, const int controlQubit,
     }
 } 
 
+void statevec_pauliYLocalSmall(Qureg qureg, const int targetQubit, const int conjFac)
+{
+    long long int sizeBlock, sizeHalfBlock;
+    long long int thisBlock, // current block
+         indexUp,indexLo;    // current index and corresponding index in lower half block
+
+    qreal stateRealUp,stateImagUp;
+    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
+    const long long int sizeTask = (1LL << targetQubit);
+    long long thisTask;
+
+    // Can't use qureg.stateVec as a private OMP var
+    qreal *stateVecReal = qureg.stateVec.real;
+    qreal *stateVecImag = qureg.stateVec.imag;
+
+# ifdef _OPENMP
+# pragma omp parallel \
+    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag) \
+    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp) 
+# endif
+    {
+# ifdef _OPENMP
+# pragma omp for schedule (static)
+# endif
+        for (thisTask = 0; thisTask < numTasks; ++thisTask) 
+        for (indexUp = thisTask * sizeTask * 2; indexUp < thisTask * sizeTask * 2 + sizeTask; ++ indexUp) {
+            
+            indexLo     = indexUp + sizeHalfBlock;
+
+            stateRealUp = stateVecReal[indexUp];
+            stateImagUp = stateVecImag[indexUp];
+
+            stateVecReal[indexUp] = conjFac * stateVecImag[indexLo];
+            stateVecImag[indexUp] = conjFac * -stateVecReal[indexLo];
+            stateVecReal[indexLo] = conjFac * -stateImagUp;
+            stateVecImag[indexLo] = conjFac * stateRealUp;
+        } 
+    }
+}
+
 void statevec_pauliYLocal(Qureg qureg, const int targetQubit, const int conjFac)
 {
     long long int sizeBlock, sizeHalfBlock;
@@ -2772,7 +2959,56 @@ void statevec_pauliYDistributed(Qureg qureg,
     }
 } 
 
+void statevec_controlledPauliYLocalSmall(Qureg qureg, const int controlQubit, const int targetQubit, const int conjFac)
+{
+    long long int sizeBlock, sizeHalfBlock;
+    long long int thisBlock, // current block
+         indexUp,indexLo;    // current index and corresponding index in lower half block
 
+    qreal stateRealUp,stateImagUp;
+    long long int thisTask;         
+    const long long int numTasks = ((targetQubit > controlQubit) ? (1LL << (targetQubit - controlQubit - 1)) : (1LL << (controlQubit - targetQubit - 1)));
+    const long long int chunkSize=qureg.numAmpsPerChunk;
+    const long long int chunkId=qureg.chunkId;
+    const long long int numBlocks = ((targetQubit > controlQubit) ? (qureg.numAmpsPerChunk>>(1 + targetQubit)) : (qureg.numAmpsPerChunk>>(1 + controlQubit)));
+    const long long int sizeTask = ((targetQubit > controlQubit) ? (1LL << controlQubit) : (1LL << targetQubit));
+
+
+    // set dimensions
+    sizeHalfBlock = 1LL << targetQubit;  
+    sizeBlock     = ((targetQubit > controlQubit) ? (2LL * sizeHalfBlock) : (2LL << controlQubit)); 
+
+
+    // Can't use qureg.stateVec as a private OMP var
+    qreal *stateVecReal = qureg.stateVec.real;
+    qreal *stateVecImag = qureg.stateVec.imag;
+
+# ifdef _OPENMP
+# pragma omp parallel \
+    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag) \
+    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp) 
+# endif
+    {
+# ifdef _OPENMP
+# pragma omp for schedule (static)
+# endif
+        for (thisBlock = 0; thisBlock < numBlocks; ++thisBlock) {
+            for(thisTask = 0; thisTask < numTasks; ++thisTask)
+            for(indexUp = thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask; indexUp < thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask * 2; ++indexUp) {
+            
+                indexLo     = indexUp + sizeHalfBlock;
+                stateRealUp = stateVecReal[indexUp];
+                stateImagUp = stateVecImag[indexUp];
+
+                // update under +-{{0, -i}, {i, 0}}
+                stateVecReal[indexUp] = conjFac * stateVecImag[indexLo];
+                stateVecImag[indexUp] = conjFac * -stateVecReal[indexLo];
+                stateVecReal[indexLo] = conjFac * -stateImagUp;
+                stateVecImag[indexLo] = conjFac * stateRealUp;
+            }
+        } 
+    }
+}
 
 
 void statevec_controlledPauliYLocal(Qureg qureg, const int controlQubit, const int targetQubit, const int conjFac)
@@ -2861,7 +3097,51 @@ void statevec_controlledPauliYDistributed (Qureg qureg, const int controlQubit,
     }
 } 
 
+void statevec_hadamardLocalSmall(Qureg qureg, const int targetQubit)
+{
+    long long int sizeBlock, sizeHalfBlock;
+    long long int thisBlock, // current block
+         indexUp,indexLo;    // current index and corresponding index in lower half block
 
+    qreal stateRealUp,stateRealLo,stateImagUp,stateImagLo;
+    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
+    const long long int sizeTask = (1LL << targetQubit);
+    long long thisTask;
+
+    // Can't use qureg.stateVec as a private OMP var
+    qreal *stateVecReal = qureg.stateVec.real;
+    qreal *stateVecImag = qureg.stateVec.imag;
+
+    qreal recRoot2 = 1.0/sqrt(2);
+
+# ifdef _OPENMP
+# pragma omp parallel \
+    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag, recRoot2) \
+    private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp,stateRealLo,stateImagLo) 
+# endif
+    {
+# ifdef _OPENMP
+# pragma omp for schedule (static)
+# endif
+        for (thisTask = 0; thisTask < numTasks; ++thisTask) 
+        for (indexUp = thisTask * sizeTask * 2; indexUp < thisTask * sizeTask * 2 + sizeTask; ++ indexUp) {
+
+            indexLo     = indexUp + sizeTask;
+
+            stateRealUp = stateVecReal[indexUp];
+            stateImagUp = stateVecImag[indexUp];
+
+            stateRealLo = stateVecReal[indexLo];
+            stateImagLo = stateVecImag[indexLo];
+
+            stateVecReal[indexUp] = recRoot2*(stateRealUp + stateRealLo);
+            stateVecImag[indexUp] = recRoot2*(stateImagUp + stateImagLo);
+
+            stateVecReal[indexLo] = recRoot2*(stateRealUp - stateRealLo);
+            stateVecImag[indexLo] = recRoot2*(stateImagUp - stateImagLo);
+        } 
+    }
+}
 
 
 
@@ -2968,6 +3248,50 @@ void statevec_hadamardDistributed(Qureg qureg,
             stateVecRealOut[thisTask] = recRoot2*(stateRealUp + sign*stateRealLo);
             stateVecImagOut[thisTask] = recRoot2*(stateImagUp + sign*stateImagLo);
         }
+    }
+}
+
+void statevec_phaseShiftByTermSmall (Qureg qureg, const int targetQubit, Complex term)
+{       
+    long long int index;
+    long long int stateVecSize;
+    int targetBit;
+    
+    const long long int chunkSize=qureg.numAmpsPerChunk;
+    const long long int chunkId=qureg.chunkId;
+
+    // dimension of the state vector
+    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
+    const long long int sizeTask = (1LL << targetQubit);
+    long long thisTask;
+
+    stateVecSize = qureg.numAmpsPerChunk;
+    qreal *stateVecReal = qureg.stateVec.real;
+    qreal *stateVecImag = qureg.stateVec.imag;
+    
+    qreal stateRealLo, stateImagLo;
+    const qreal cosAngle = term.real;
+    const qreal sinAngle = term.imag;
+
+# ifdef _OPENMP
+# pragma omp parallel for \
+    shared   (stateVecSize, stateVecReal,stateVecImag ) \
+    private  (index,targetBit,stateRealLo,stateImagLo)             \
+    schedule (static)
+# endif
+    for(thisTask = 0; thisTask < numTasks; ++thisTask) 
+    for(index = sizeTask * thisTask * 2 + sizeTask; index < sizeTask * (thisTask + 1); ++index) {
+        
+        // update the coeff of the |1> state of the target qubit
+        // targetBit = extractBit (targetQubit, index+chunkId*chunkSize);
+        // if (targetBit) {
+            
+            stateRealLo = stateVecReal[index];
+            stateImagLo = stateVecImag[index];
+            
+            stateVecReal[index] = cosAngle*stateRealLo - sinAngle*stateImagLo;
+            stateVecImag[index] = sinAngle*stateRealLo + cosAngle*stateImagLo;  
+        // }
     }
 }
 

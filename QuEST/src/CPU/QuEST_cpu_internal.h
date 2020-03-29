@@ -96,6 +96,8 @@ Complex statevec_calcInnerProductLocal(Qureg bra, Qureg ket);
 
 void statevec_compactUnitaryLocal (Qureg qureg, const int targetQubit, Complex alpha, Complex beta);
 
+void statevec_compactUnitaryLocalSmall (Qureg qureg, const int targetQubit, Complex alpha, Complex beta);
+
 void statevec_compactUnitaryDistributed (Qureg qureg,
         Complex rot1, Complex rot2,
         ComplexArray stateVecUp,
@@ -142,12 +144,15 @@ void statevec_multiControlledUnitaryDistributed (Qureg qureg,
         ComplexArray stateVecOut);
 
 void statevec_pauliXLocal(Qureg qureg, const int targetQubit);
+void statevec_pauliXLocalSmall(Qureg qureg, const int targetQubit);
 
 void statevec_pauliXDistributed (Qureg qureg,
         ComplexArray stateVecIn,
         ComplexArray stateVecOut);
 
 void statevec_pauliYLocal(Qureg qureg, const int targetQubit, const int conjFac);
+
+void statevec_pauliYLocalSmall(Qureg qureg, const int targetQubit, const int conjFac);
 
 void statevec_pauliYDistributed(Qureg qureg,
         ComplexArray stateVecIn,
@@ -156,11 +161,15 @@ void statevec_pauliYDistributed(Qureg qureg,
 
 void statevec_controlledPauliYLocal(Qureg qureg, const int controlQubit, const int targetQubit, const int conjFactor);
 
+void statevec_controlledPauliYLocalSmall(Qureg qureg, const int controlQubit, const int targetQubit, const int conjFactor);
+
 void statevec_controlledPauliYDistributed(Qureg qureg, const int controlQubit,
         ComplexArray stateVecIn,
         ComplexArray stateVecOut, const int conjFactor);
         
 void statevec_hadamardLocal (Qureg qureg, const int targetQubit);
+
+void statevec_hadamardLocalSmall (Qureg qureg, const int targetQubit);
 
 void statevec_hadamardDistributed (Qureg qureg,
         ComplexArray stateVecUp,
@@ -168,6 +177,8 @@ void statevec_hadamardDistributed (Qureg qureg,
         ComplexArray stateVecOut, int updateUpper);
 
 void statevec_controlledNotLocal(Qureg qureg, const int controlQubit, const int targetQubit);
+
+void statevec_controlledNotLocalSmall(Qureg qureg, const int controlQubit, const int targetQubit);
 
 void statevec_controlledNotDistributed (Qureg qureg, const int controlQubit,
         ComplexArray stateVecIn,

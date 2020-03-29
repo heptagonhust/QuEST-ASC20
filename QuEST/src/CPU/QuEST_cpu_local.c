@@ -214,7 +214,9 @@ qreal statevec_getImagAmp(Qureg qureg, long long int index){
 
 void statevec_compactUnitary(Qureg qureg, const int targetQubit, Complex alpha, Complex beta) 
 {
-    statevec_compactUnitaryLocal(qureg, targetQubit, alpha, beta);
+    // statevec_compactUnitaryLocal(qureg, targetQubit, alpha, beta);
+    statevec_compactUnitaryLocalSmall(qureg, targetQubit, alpha, beta);
+
 }
 
 void statevec_unitary(Qureg qureg, const int targetQubit, ComplexMatrix2 u) 
@@ -225,11 +227,11 @@ void statevec_unitary(Qureg qureg, const int targetQubit, ComplexMatrix2 u)
 void statevec_controlledCompactUnitary(Qureg qureg, const int controlQubit, const int targetQubit, Complex alpha, Complex beta) 
 {
     // if ((qureg.numAmpsPerChunk >> (targetQubit + 1) ) >= 8) {
-    statevec_controlledCompactUnitaryLocalSmall(qureg, controlQubit, targetQubit, alpha, beta);
+    // statevec_controlledCompactUnitaryLocalSmall(qureg, controlQubit, targetQubit, alpha, beta);
     // } else {
     //     statevec_controlledCompactUnitaryLocal(qureg, controlQubit, targetQubit, alpha, beta);
     // }
-    // statevec_controlledCompactUnitaryLocal(qureg, controlQubit, targetQubit, alpha, beta);
+    statevec_controlledCompactUnitaryLocal(qureg, controlQubit, targetQubit, alpha, beta);
 
 }
 
@@ -245,41 +247,48 @@ void statevec_multiControlledUnitary(Qureg qureg, long long int ctrlQubitsMask, 
 
 void statevec_pauliX(Qureg qureg, const int targetQubit) 
 {
-    statevec_pauliXLocal(qureg, targetQubit);
+    // statevec_pauliXLocal(qureg, targetQubit);
+    statevec_pauliXLocalSmall(qureg, targetQubit);
 }
 
 void statevec_pauliY(Qureg qureg, const int targetQubit) 
 {
     int conjFac = 1;
-    statevec_pauliYLocal(qureg, targetQubit, conjFac);
+    // statevec_pauliYLocal(qureg, targetQubit, conjFac);
+    statevec_pauliYLocalSmall(qureg, targetQubit, conjFac);
 }
 
 void statevec_pauliYConj(Qureg qureg, const int targetQubit) 
 {
     int conjFac = -1;
-    statevec_pauliYLocal(qureg, targetQubit, conjFac);
+    // statevec_pauliYLocal(qureg, targetQubit, conjFac);
+    statevec_pauliYLocalSmall(qureg, targetQubit, conjFac);
 }
 
 void statevec_controlledPauliY(Qureg qureg, const int controlQubit, const int targetQubit)
 {
     int conjFac = 1;
-    statevec_controlledPauliYLocal(qureg, controlQubit, targetQubit, conjFac);
+    // statevec_controlledPauliYLocal(qureg, controlQubit, targetQubit, conjFac);
+    statevec_controlledPauliYLocalSmall(qureg, controlQubit, targetQubit, conjFac);
 }
 
 void statevec_controlledPauliYConj(Qureg qureg, const int controlQubit, const int targetQubit)
 {
     int conjFac = -1;
-    statevec_controlledPauliYLocal(qureg, controlQubit, targetQubit, conjFac);
+    // statevec_controlledPauliYLocal(qureg, controlQubit, targetQubit, conjFac);
+    statevec_controlledPauliYLocalSmall(qureg, controlQubit, targetQubit, conjFac);
 }
 
 void statevec_hadamard(Qureg qureg, const int targetQubit) 
 {
-    statevec_hadamardLocal(qureg, targetQubit);
+    // statevec_hadamardLocal(qureg, targetQubit);
+    statevec_hadamardLocalSmall(qureg, targetQubit);
 }
 
 void statevec_controlledNot(Qureg qureg, const int controlQubit, const int targetQubit) 
 {
-    statevec_controlledNotLocal(qureg, controlQubit, targetQubit);
+    // statevec_controlledNotLocal(qureg, controlQubit, targetQubit);
+    statevec_controlledNotLocalSmall(qureg, controlQubit, targetQubit);
 }
 
 qreal statevec_calcProbOfOutcome(Qureg qureg, const int measureQubit, int outcome)
