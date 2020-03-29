@@ -2076,6 +2076,13 @@ void statevec_controlledCompactUnitaryLocalSmall(Qureg qureg,
   qreal alphaImag = alpha.imag, alphaReal = alpha.real;
   qreal betaImag = beta.imag, betaReal = beta.real;
 
+__m256d stateRealUpAVX,stateImagUpAVX,stateRealLoAVX,stateImagLoAVX,res;
+__m256d alphaRealAVX = _mm256_set1_pd(alphaReal);
+__m256d alphaImagAVX = _mm256_set1_pd(alphaImag);
+__m256d betaRealAVX = _mm256_set1_pd(betaReal);
+__m256d betaImagAVX = _mm256_set1_pd(betaImag);
+
+    if (sizeTask < 4) {
 #ifdef _OPENMP
 #pragma omp parallel shared(                                \
     sizeBlock, sizeHalfBlock, stateVecReal, stateVecImag, alphaReal,      \
@@ -2084,12 +2091,12 @@ void statevec_controlledCompactUnitaryLocalSmall(Qureg qureg,
                       stateImagUp, stateRealLo, stateImagLo, controlBit)
 #endif
   {
+    
 #ifdef _OPENMP
 #pragma omp for schedule(static)
 #endif
     for (thisBlock = 0; thisBlock < numBlocks; ++thisBlock) {
       for (thisTask = 0; thisTask < numTasks; ++thisTask){
-        if (sizeTask < 4) {
           for (indexUp = thisBlock * sizeBlock + thisTask * sizeTask * 2;
                indexUp <
                thisBlock * sizeBlock + thisTask * sizeTask * 2 + sizeTask;
@@ -2124,8 +2131,34 @@ void statevec_controlledCompactUnitaryLocalSmall(Qureg qureg,
                 alphaReal * stateImagLo - alphaImag * stateRealLo;
             // }
           }
-        }else{
-            for (indexUp = thisBlock * sizeBlock + thisTask * sizeTask * 2;
+        
+            
+            
+            /*
+            stateVecImag[indexLo] =
+                betaReal * stateImagUp + betaImag * stateRealUp +
+                alphaReal * stateImagLo - alphaImag * stateRealLo;
+            */
+            // }
+          
+        }
+      }
+    }
+  }else{
+      #ifdef _OPENMP
+#pragma omp parallel shared(                                \
+    sizeBlock, sizeHalfBlock, stateVecReal, stateVecImag, alphaRealAVX,      \
+    alphaImagAVX, betaRealAVX,                                                  \
+    betaImagAVX) private(thisTask, thisBlock, indexUp, indexLo, stateRealUpAVX, \
+                      stateImagUpAVX, stateRealLoAVX, stateImagLoAVX, controlBit,res)
+#endif
+    {
+#ifdef _OPENMP
+#pragma omp for schedule(static)
+#endif
+    for (thisBlock = 0; thisBlock < numBlocks; ++thisBlock) {
+      for (thisTask = 0; thisTask < numTasks; ++thisTask){
+        for (indexUp = thisBlock * sizeBlock + thisTask * sizeTask * 2;
                indexUp <
                thisBlock * sizeBlock + thisTask * sizeTask * 2 + sizeTask;
                indexUp+=4) {
@@ -2134,12 +2167,6 @@ void statevec_controlledCompactUnitaryLocalSmall(Qureg qureg,
             // controlBit = extractBit (controlQubit,
             // indexUp+chunkId*chunkSize); if (controlBit){ store current
             // state vector values in temp variables
-
-            __m256d stateRealUpAVX,stateImagUpAVX,stateRealLoAVX,stateImagLoAVX;
-            __m256d alphaRealAVX = _mm256_set1_pd(alphaReal);
-            __m256d alphaImagAVX = _mm256_set1_pd(alphaImag);
-            __m256d betaRealAVX = _mm256_set1_pd(betaReal);
-            __m256d betaImagAVX = _mm256_set1_pd(betaImag);
 
             stateRealUpAVX = _mm256_loadu_pd(stateVecReal+indexUp);
             stateImagUpAVX = _mm256_loadu_pd(stateVecImag+indexUp);
@@ -2157,7 +2184,7 @@ void statevec_controlledCompactUnitaryLocalSmall(Qureg qureg,
             // state[indexUp] = alpha * state[indexUp] - conj(beta)  *
             // state[indexLo]
 
-            __m256d res =  _mm256_mul_pd(alphaRealAVX,stateRealUpAVX);
+            res =  _mm256_mul_pd(alphaRealAVX,stateRealUpAVX);
             res = _mm256_hsub_pd(res,_mm256_mul_pd(alphaImagAVX,stateImagUpAVX));
             res = _mm256_hsub_pd(res,_mm256_mul_pd(betaRealAVX,stateRealLoAVX));
             res = _mm256_hsub_pd(res,_mm256_mul_pd(betaImagAVX,stateImagLoAVX));
@@ -2213,18 +2240,11 @@ void statevec_controlledCompactUnitaryLocalSmall(Qureg qureg,
             res = _mm256_sub_pd(res,_mm256_mul_pd(alphaImagAVX,stateRealLoAVX));
 
             _mm256_storeu_pd(stateVecImag+indexLo,res);
-            
-            /*
-            stateVecImag[indexLo] =
-                betaReal * stateImagUp + betaImag * stateRealUp +
-                alphaReal * stateImagLo - alphaImag * stateRealLo;
-            */
-            // }
-          }
+            }
         }
-      }
     }
-  }
+    }
+    }
 }
 
 void statevec_controlledCompactUnitaryLocal (Qureg qureg, const int controlQubit, const int targetQubit, 
