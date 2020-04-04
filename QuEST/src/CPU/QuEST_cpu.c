@@ -3589,7 +3589,7 @@ void statevec_phaseShiftByTermSmall (Qureg qureg, const int targetQubit, Complex
     schedule (static)
 # endif
     for(thisTask = 0; thisTask < numTasks; ++thisTask) 
-    for(index = sizeTask * thisTask * 2 + sizeTask; index < sizeTask * (thisTask + 1); ++index) {
+    for(index = sizeTask * thisTask * 2 + sizeTask; index < sizeTask * (thisTask + 1) * 2; ++index) {
         
         // update the coeff of the |1> state of the target qubit
         // targetBit = extractBit (targetQubit, index+chunkId*chunkSize);
