@@ -188,6 +188,8 @@ void statevec_hadamardLocal (Qureg qureg, const int targetQubit);
 
 void statevec_hadamardLocalSmall (Qureg qureg, const int targetQubit);
 
+void statevec_hadamardLocalSIMD (Qureg qureg, const int targetQubit);
+
 void statevec_hadamardDistributed (Qureg qureg,
         ComplexArray stateVecUp,
         ComplexArray stateVecLo,

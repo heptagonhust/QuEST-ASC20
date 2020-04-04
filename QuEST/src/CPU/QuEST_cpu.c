@@ -3416,8 +3416,13 @@ void statevec_hadamardLocalSmall(Qureg qureg, const int targetQubit)
     long long int indexUp,indexLo;    // current index and corresponding index in lower half block
 
     qreal stateRealUp,stateRealLo,stateImagUp,stateImagLo;
-    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
     const long long int sizeTask = (1LL << targetQubit);
+    if(sizeTask >= 4){
+        statevec_hadamardLocalSIMD(qureg,targetQubit);
+        return;
+    }
+
+    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
     long long thisTask;
 
     // Can't use qureg.stateVec as a private OMP var
@@ -3455,9 +3460,48 @@ void statevec_hadamardLocalSmall(Qureg qureg, const int targetQubit)
     }
 }
 
+void statevec_hadamardLocalSIMD(Qureg qureg, const int targetQubit)
+{
+    long long int indexUp,indexLo;    // current index and corresponding index in lower half block
 
+    __m256d stateRealUpSIMD,stateRealLoSIMD,stateImagUpSIMD,stateImagLoSIMD;
+    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
+    const long long int sizeTask = (1LL << targetQubit);
+    long long thisTask;
 
+    // Can't use qureg.stateVec as a private OMP var
+    qreal *stateVecReal = qureg.stateVec.real;
+    qreal *stateVecImag = qureg.stateVec.imag;
 
+    qreal recRoot2 = 1.0/sqrt(2);
+    register __m256d recRoot2SIMD = _mm256_set1_pd(recRoot2);
+
+# ifdef _OPENMP
+# pragma omp parallel \
+    shared   (stateVecReal,stateVecImag, recRoot2SIMD) \
+    private  (thisTask,indexUp,indexLo, stateRealUpSIMD,stateImagUpSIMD,stateRealLoSIMD,stateImagLoSIMD) 
+# endif
+    {
+# ifdef _OPENMP
+# pragma omp for schedule (static)
+# endif
+        for (thisTask = 0; thisTask < numTasks; ++thisTask) 
+        for (indexUp = thisTask * sizeTask * 2; indexUp < thisTask * sizeTask * 2 + sizeTask; indexUp+=4) {
+
+            indexLo     = indexUp + sizeTask;
+
+            stateRealUpSIMD = _mm256_loadu_pd(stateVecReal+indexUp);
+            stateImagUpSIMD = _mm256_loadu_pd(stateVecImag+indexUp);
+            stateRealLoSIMD = _mm256_loadu_pd(stateVecReal+indexLo);
+            stateImagLoSIMD = _mm256_loadu_pd(stateVecImag+indexLo);
+
+            _mm256_storeu_pd(stateVecReal+indexUp, _mm256_mul_pd(recRoot2SIMD,_mm256_add_pd(stateRealUpSIMD, stateRealLoSIMD)));
+            _mm256_storeu_pd(stateVecImag+indexUp, _mm256_mul_pd(recRoot2SIMD,_mm256_add_pd(stateImagUpSIMD, stateImagLoSIMD)));
+            _mm256_storeu_pd(stateVecReal+indexLo, _mm256_mul_pd(recRoot2SIMD,_mm256_sub_pd(stateRealUpSIMD, stateRealLoSIMD)));
+            _mm256_storeu_pd(stateVecImag+indexLo, _mm256_mul_pd(recRoot2SIMD,_mm256_sub_pd(stateImagUpSIMD, stateImagLoSIMD)));
+        } 
+    }
+}
 
 void statevec_hadamardLocal(Qureg qureg, const int targetQubit)
 {
