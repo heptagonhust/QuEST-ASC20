@@ -22,6 +22,7 @@
 # include <stdlib.h>
 # include <stdint.h>
 # include <assert.h>
+# include <immintrin.h>
 
 # ifdef _OPENMP
 # include <omp.h>
@@ -1645,10 +1646,14 @@ void statevec_compactUnitaryLocalSmall (Qureg qureg, const int targetQubit, Comp
 
     qreal stateRealUp,stateRealLo,stateImagUp,stateImagLo;
     
-    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
     const long long int sizeTask = (1LL << targetQubit);
-    long long thisTask;
+    if(sizeTask >= 4){
+        statevec_compactUnitaryLocalSIMD(qureg,targetQubit,alpha,beta);
+        return;
+    }
 
+    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
+    long long thisTask;
 
     // Can't use qureg.stateVec as a private OMP var
     qreal *stateVecReal = qureg.stateVec.real;
@@ -1688,6 +1693,92 @@ void statevec_compactUnitaryLocalSmall (Qureg qureg, const int targetQubit, Comp
                 + alphaReal*stateRealLo + alphaImag*stateImagLo;
             stateVecImag[indexLo] = betaReal*stateImagUp + betaImag*stateRealUp 
                 + alphaReal*stateImagLo - alphaImag*stateRealLo;
+        } 
+    }
+
+} 
+
+void statevec_compactUnitaryLocalSIMD (Qureg qureg, const int targetQubit, Complex alpha, Complex beta)
+{
+    long long int indexUp,indexLo;    // current index and corresponding index in lower half block
+
+    qreal stateRealUp,stateRealLo,stateImagUp,stateImagLo;
+    
+    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
+    const long long int sizeTask = (1LL << targetQubit);
+    long long thisTask;
+
+
+    // Can't use qureg.stateVec as a private OMP var
+    qreal *stateVecReal = qureg.stateVec.real;
+    qreal *stateVecImag = qureg.stateVec.imag;
+    qreal alphaImag=alpha.imag, alphaReal=alpha.real;
+    qreal betaImag=beta.imag, betaReal=beta.real;
+
+
+    __m256d stateRealUpAVX,stateImagUpAVX,stateRealLoAVX,stateImagLoAVX;
+    register __m256d alphaRealAVX = _mm256_set1_pd(alphaReal);
+    register __m256d alphaImagAVX = _mm256_set1_pd(alphaImag);
+    register __m256d betaRealAVX = _mm256_set1_pd(betaReal);
+    register __m256d betaImagAVX = _mm256_set1_pd(betaImag);
+
+
+# ifdef _OPENMP
+# pragma omp parallel \
+    shared   (stateVecReal,stateVecImag, alphaRealAVX,alphaImagAVX, betaRealAVX,betaImagAVX) \
+    private  (thisTask,indexUp,indexLo, stateRealUpAVX,stateImagUpAVX,stateRealLoAVX,stateImagLoAVX) 
+# endif
+    {
+# ifdef _OPENMP
+# pragma omp for schedule (static)
+# endif
+        for (thisTask = 0; thisTask < numTasks; ++thisTask) 
+        for (indexUp = thisTask * sizeTask * 2; indexUp < thisTask * sizeTask * 2 + sizeTask; indexUp+=4) {
+
+            indexLo     = indexUp + sizeTask;
+
+            // store current state vector values in temp variables
+            stateRealUpAVX = _mm256_loadu_pd(stateVecReal+indexUp);
+            stateImagUpAVX = _mm256_loadu_pd(stateVecImag+indexUp);
+            stateRealLoAVX = _mm256_loadu_pd(stateVecReal+indexLo);
+            stateImagLoAVX = _mm256_loadu_pd(stateVecImag+indexLo);
+
+
+            // state[indexUp] = alpha * state[indexUp] - conj(beta)  * state[indexLo]
+            //stateVecReal[indexUp] = alphaReal*stateRealUp - alphaImag*stateImagUp 
+            //    - betaReal*stateRealLo - betaImag*stateImagLo;
+            __m256d res1 =  _mm256_mul_pd(alphaRealAVX,stateRealUpAVX);
+            res1 = _mm256_sub_pd(res1,_mm256_mul_pd(alphaImagAVX,stateImagUpAVX));
+            res1 = _mm256_sub_pd(res1,_mm256_mul_pd(betaRealAVX,stateRealLoAVX));
+            res1 = _mm256_sub_pd(res1,_mm256_mul_pd(betaImagAVX,stateImagLoAVX));
+
+
+            //stateVecImag[indexUp] = alphaReal*stateImagUp + alphaImag*stateRealUp 
+            //    - betaReal*stateImagLo + betaImag*stateRealLo;
+            __m256d res2 =  _mm256_mul_pd(alphaRealAVX,stateImagUpAVX);
+            res2 = _mm256_add_pd(res2,_mm256_mul_pd(alphaImagAVX,stateRealUpAVX));
+            res2 = _mm256_sub_pd(res2,_mm256_mul_pd(betaRealAVX,stateImagLoAVX));
+            res2 = _mm256_add_pd(res2,_mm256_mul_pd(betaImagAVX,stateRealLoAVX));
+
+            // state[indexLo] = beta  * state[indexUp] + conj(alpha) * state[indexLo]
+            //stateVecReal[indexLo] = betaReal*stateRealUp - betaImag*stateImagUp 
+            //    + alphaReal*stateRealLo + alphaImag*stateImagLo;
+            __m256d res3 = _mm256_mul_pd(betaRealAVX,stateRealUpAVX);
+            res3 = _mm256_sub_pd(res3,_mm256_mul_pd(betaImagAVX,stateImagUpAVX));
+            res3 = _mm256_add_pd(res3,_mm256_mul_pd(alphaRealAVX,stateRealLoAVX));
+            res3 = _mm256_add_pd(res3,_mm256_mul_pd(alphaImagAVX,stateImagLoAVX));
+
+            //stateVecImag[indexLo] = betaReal*stateImagUp + betaImag*stateRealUp 
+            //    + alphaReal*stateImagLo - alphaImag*stateRealLo;
+            __m256d res4 = _mm256_mul_pd(betaRealAVX,stateImagUpAVX);
+            res4 = _mm256_add_pd(res4,_mm256_mul_pd(betaImagAVX,stateRealUpAVX));
+            res4 = _mm256_add_pd(res4,_mm256_mul_pd(alphaRealAVX,stateImagLoAVX));
+            res4 = _mm256_sub_pd(res4,_mm256_mul_pd(alphaImagAVX,stateRealLoAVX));
+
+            _mm256_storeu_pd(stateVecReal+indexUp,res1);
+            _mm256_storeu_pd(stateVecImag+indexUp,res2);
+            _mm256_storeu_pd(stateVecReal+indexLo,res3);
+            _mm256_storeu_pd(stateVecImag+indexLo,res4);
         } 
     }
 
