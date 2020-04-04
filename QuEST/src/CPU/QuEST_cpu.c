@@ -3571,8 +3571,13 @@ void statevec_phaseShiftByTermSmall (Qureg qureg, const int targetQubit, Complex
     // const long long int chunkId=qureg.chunkId;
 
     // dimension of the state vector
-    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
     const long long int sizeTask = (1LL << targetQubit);
+    if(sizeTask >= 4){
+        statevec_phaseShiftByTermSIMD(qureg,targetQubit,term);
+        return;
+    }
+
+    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
     long long thisTask;
 
     qreal *stateVecReal = qureg.stateVec.real;
@@ -3600,6 +3605,54 @@ void statevec_phaseShiftByTermSmall (Qureg qureg, const int targetQubit, Complex
             
             stateVecReal[index] = cosAngle*stateRealLo - sinAngle*stateImagLo;
             stateVecImag[index] = sinAngle*stateRealLo + cosAngle*stateImagLo;  
+        // }
+    }
+}
+
+void statevec_phaseShiftByTermSIMD (Qureg qureg, const int targetQubit, Complex term)
+{       
+    long long int index;
+    
+    // const long long int chunkSize=qureg.numAmpsPerChunk;
+    // const long long int chunkId=qureg.chunkId;
+
+    // dimension of the state vector
+    const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
+    const long long int sizeTask = (1LL << targetQubit);
+    long long thisTask;
+
+    qreal *stateVecReal = qureg.stateVec.real;
+    qreal *stateVecImag = qureg.stateVec.imag;
+    
+    __m256d stateRealLoSIMD, stateImagLoSIMD;
+    register __m256d cosAngleSIMD = _mm256_set1_pd(term.real);
+    register __m256d sinAngleSIMD = _mm256_set1_pd(term.imag);
+
+# ifdef _OPENMP
+# pragma omp parallel for \
+    shared   (stateVecReal,stateVecImag ) \
+    private  (index,stateRealLoSIMD,stateImagLoSIMD)             \
+    schedule (static)
+# endif
+    for(thisTask = 0; thisTask < numTasks; ++thisTask) 
+    for(index = sizeTask * thisTask * 2 + sizeTask; index < sizeTask * (thisTask + 1) * 2; index+=4) {
+        
+        // update the coeff of the |1> state of the target qubit
+        // targetBit = extractBit (targetQubit, index+chunkId*chunkSize);
+        // if (targetBit) {
+            
+            stateRealLoSIMD = _mm256_loadu_pd(stateVecReal+index);
+            stateImagLoSIMD = _mm256_loadu_pd(stateVecImag+index);
+            
+            _mm256_storeu_pd(stateVecReal+index, _mm256_sub_pd(\
+                            _mm256_mul_pd(cosAngleSIMD,stateRealLoSIMD),\
+                            _mm256_mul_pd(sinAngleSIMD,stateImagLoSIMD)));
+            //stateVecReal[index] = cosAngle*stateRealLo - sinAngle*stateImagLo;
+            
+            _mm256_storeu_pd(stateVecImag+index, _mm256_add_pd(\
+                            _mm256_mul_pd(sinAngleSIMD,stateRealLoSIMD),\
+                            _mm256_mul_pd(cosAngleSIMD,stateImagLoSIMD)));
+            //stateVecImag[index] = sinAngle*stateRealLo + cosAngle*stateImagLo;  
         // }
     }
 }
