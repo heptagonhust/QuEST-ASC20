@@ -12,8 +12,10 @@ project(QuEST_Project)
 # ----- USER OPTIONS ----------------------------------------------------------
 # -----------------------------------------------------------------------------
 
-set(USER_SOURCE  "examples/tutorial_example.c"  CACHE STRING "Source to build with QuEST library")
+set(USER_SOURCE  "examples/random.c"  CACHE STRING "Source to build with QuEST library")
 set(OUTPUT_EXE   "demo"  CACHE STRING "Executable to compile to")
+
+add_compile_options("-mavx")
 
 option(TESTING "Enable test suite functionality -- requires test suite available" ON)
 set(QuEST_UTIL_DIR_NAME "utilities" CACHE STRING

@@ -1649,6 +1649,7 @@ void statevec_compactUnitaryLocalSmall (Qureg qureg, const int targetQubit, Comp
     const long long int sizeTask = (1LL << targetQubit);
     if(sizeTask >= 4){
         statevec_compactUnitaryLocalSIMD(qureg,targetQubit,alpha,beta);
+        //printf("simd");
         return;
     }
 
@@ -2262,6 +2263,7 @@ void statevec_controlledCompactUnitaryLocalSmall (Qureg qureg, const int control
     const long long int sizeTask = ((targetQubit > controlQubit) ? (1LL << controlQubit) : (1LL << targetQubit));
     if(sizeTask >= 4){
         statevec_controlledCompactUnitaryLocalSIMD(qureg,controlQubit,targetQubit,alpha,beta);
+        //printf("simd");
         return;
     }
 
@@ -2647,7 +2649,7 @@ void statevec_controlledCompactUnitaryDistributed (Qureg qureg, const int contro
     const long long int chunkSize=qureg.numAmpsPerChunk;
     const long long int chunkId=qureg.chunkId;
 
-    if(1<<(controlQubit-1) >= 4){
+    if((1<<(controlQubit-1)) >= 4){
         statevec_controlledCompactUnitaryDistributedSIMD(qureg,controlQubit,rot1,rot2,stateVecUp,stateVecLo,stateVecOut);
         return;
     }
@@ -2731,8 +2733,8 @@ void statevec_controlledCompactUnitaryDistributedSIMD (Qureg qureg, const int co
 # endif
         for(thisBlock=blockStart; thisBlock<blockStart+blockRange; thisBlock++){
             blockEnd = (thisBlock+1)*blockSize;
-            taskEnd = min(blockEnd,chunkEnd);
-            for(thisTask=thisBlock*blockSize+(blockSize>>1); thisTask<taskEnd; thisTask+=4){
+            taskEnd = fmin(blockEnd,chunkEnd) - chunkId*chunkSize;
+            for(thisTask=thisBlock*blockSize+(blockSize>>1) - chunkId*chunkSize; thisTask<taskEnd; thisTask+=4){
                 stateRealUpSIMD = _mm256_loadu_pd(stateVecRealUp+thisTask);
                 stateImagUpSIMD = _mm256_loadu_pd(stateVecImagUp+thisTask);
 
@@ -3001,6 +3003,7 @@ void statevec_pauliXDistributed (Qureg qureg,
         }
     }
 } 
+
 void statevec_controlledNotLocalSmall(Qureg qureg, const int controlQubit, const int targetQubit)
 {
     long long int sizeBlock, sizeHalfBlock;
@@ -3419,6 +3422,7 @@ void statevec_hadamardLocalSmall(Qureg qureg, const int targetQubit)
     const long long int sizeTask = (1LL << targetQubit);
     if(sizeTask >= 4){
         statevec_hadamardLocalSIMD(qureg,targetQubit);
+        //printf("simd");
         return;
     }
 
