@@ -2647,6 +2647,11 @@ void statevec_controlledCompactUnitaryDistributed (Qureg qureg, const int contro
     const long long int chunkSize=qureg.numAmpsPerChunk;
     const long long int chunkId=qureg.chunkId;
 
+    if(1<<(controlQubit-1) >= 4){
+        statevec_controlledCompactUnitaryDistributedSIMD(qureg,controlQubit,rot1,rot2,stateVecUp,stateVecLo,stateVecOut);
+        return;
+    }
+
     int controlBit;
 
     qreal rot1Real=rot1.real, rot1Imag=rot1.imag;
@@ -2678,6 +2683,69 @@ void statevec_controlledCompactUnitaryDistributed (Qureg qureg, const int contro
                 // state[indexUp] = alpha * state[indexUp] - conj(beta)  * state[indexLo]
                 stateVecRealOut[thisTask] = rot1Real*stateRealUp - rot1Imag*stateImagUp + rot2Real*stateRealLo + rot2Imag*stateImagLo;
                 stateVecImagOut[thisTask] = rot1Real*stateImagUp + rot1Imag*stateRealUp + rot2Real*stateImagLo - rot2Imag*stateRealLo;
+            }
+        }
+    }
+}
+
+void statevec_controlledCompactUnitaryDistributedSIMD (Qureg qureg, const int controlQubit,
+        Complex rot1, Complex rot2,
+        ComplexArray stateVecUp,
+        ComplexArray stateVecLo,
+        ComplexArray stateVecOut)
+{
+
+    __m256d stateRealUpSIMD,stateRealLoSIMD,stateImagUpSIMD,stateImagLoSIMD;
+
+    long long int thisTask;  
+    long long int thisBlock;
+    long long int taskEnd;
+    long long int blockEnd;
+    const long long int chunkSize=qureg.numAmpsPerChunk;
+    const long long int chunkId=qureg.chunkId;
+    const long long int chunkEnd=(chunkId+1)*chunkSize;
+    const long long int blockSize=1<<controlQubit;
+    const long long int blockStart=chunkId*chunkSize/(blockSize);
+    const long long int blockRange=(chunkSize>blockSize)?(chunkSize/blockSize):1;
+
+    qreal rot1Real=rot1.real, rot1Imag=rot1.imag;
+    qreal rot2Real=rot2.real, rot2Imag=rot2.imag;
+    qreal *stateVecRealUp=stateVecUp.real, *stateVecImagUp=stateVecUp.imag;
+    qreal *stateVecRealLo=stateVecLo.real, *stateVecImagLo=stateVecLo.imag;
+    qreal *stateVecRealOut=stateVecOut.real, *stateVecImagOut=stateVecOut.imag;
+
+    register __m256d rot1RealSIMD = _mm256_set1_pd(rot1Real);
+    register __m256d rot1ImagSIMD = _mm256_set1_pd(rot1Imag);
+    register __m256d rot2RealSIMD = _mm256_set1_pd(rot2Real);
+    register __m256d rot2ImagSIMD = _mm256_set1_pd(rot2Imag);
+
+# ifdef _OPENMP
+# pragma omp parallel \
+    shared   (stateVecRealUp,stateVecImagUp,stateVecRealLo,stateVecImagLo,stateVecRealOut,stateVecImagOut, \
+            rot1RealSIMD,rot1ImagSIMD, rot2RealSIMD,rot2ImagSIMD) \
+    private  (thisTask,thisBlock,blockEnd,taskEnd,stateRealUpSIMD,stateImagUpSIMD,stateRealLoSIMD,stateImagLoSIMD)
+# endif
+    {
+# ifdef _OPENMP
+# pragma omp for schedule (static)
+# endif
+        for(thisBlock=blockStart; thisBlock<blockStart+blockRange; thisBlock++){
+            blockEnd = (thisBlock+1)*blockSize;
+            taskEnd = min(blockEnd,chunkEnd);
+            for(thisTask=thisBlock*blockSize+(blockSize>>1); thisTask<taskEnd; thisTask+=4){
+                stateRealUpSIMD = _mm256_loadu_pd(stateVecRealUp+thisTask);
+                stateImagUpSIMD = _mm256_loadu_pd(stateVecImagUp+thisTask);
+
+                stateRealLoSIMD = _mm256_loadu_pd(stateVecRealLo+thisTask);
+                stateImagLoSIMD = _mm256_loadu_pd(stateVecImagLo+thisTask);
+
+                _mm256_storeu_pd(stateVecRealOut+thisTask, _mm256_add_pd( \
+                                _mm256_sub_pd(_mm256_mul_pd(rot1RealSIMD,stateRealUpSIMD),_mm256_mul_pd(rot1ImagSIMD,stateImagUpSIMD)), \
+                                _mm256_add_pd(_mm256_mul_pd(rot2RealSIMD,stateRealLoSIMD),_mm256_mul_pd(rot2ImagSIMD,stateImagLoSIMD))));
+
+                _mm256_storeu_pd(stateVecImagOut+thisTask, _mm256_add_pd( \
+                                _mm256_add_pd(_mm256_mul_pd(rot1RealSIMD,stateImagUpSIMD),_mm256_mul_pd(rot1ImagSIMD,stateRealUpSIMD)), \
+                                _mm256_sub_pd(_mm256_mul_pd(rot2RealSIMD,stateImagLoSIMD),_mm256_mul_pd(rot2ImagSIMD,stateRealLoSIMD))));              
             }
         }
     }
