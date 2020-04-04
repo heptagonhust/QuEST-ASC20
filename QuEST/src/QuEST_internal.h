@@ -141,6 +141,8 @@ void statevec_phaseShiftByTerm(Qureg qureg, const int targetQubit, Complex term)
 
 void statevec_phaseShiftByTermSmall(Qureg qureg, const int targetQubit, Complex term);
 
+void statevec_phaseShiftByTermSIMD(Qureg qureg, const int targetQubit, Complex term);
+
 void statevec_controlledPhaseShift(Qureg qureg, const int idQubit1, const int idQubit2, qreal angle); 
 
 void statevec_multiControlledPhaseShift(Qureg qureg, int *controlQubits, int numControlQubits, qreal angle);
