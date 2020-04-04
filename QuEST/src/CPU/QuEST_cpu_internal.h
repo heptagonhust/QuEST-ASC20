@@ -195,6 +195,11 @@ void statevec_hadamardDistributed (Qureg qureg,
         ComplexArray stateVecLo,
         ComplexArray stateVecOut, int updateUpper);
 
+void statevec_hadamardDistributedSIMD (Qureg qureg,
+        ComplexArray stateVecUp,
+        ComplexArray stateVecLo,
+        ComplexArray stateVecOut, int updateUpper);
+
 void statevec_controlledNotLocal(Qureg qureg, const int controlQubit, const int targetQubit);
 
 void statevec_controlledNotLocalSmall(Qureg qureg, const int controlQubit, const int targetQubit);

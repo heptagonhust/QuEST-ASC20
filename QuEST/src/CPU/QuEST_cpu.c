@@ -1717,10 +1717,10 @@ void statevec_compactUnitaryLocalSIMD (Qureg qureg, const int targetQubit, Compl
 
 
     __m256d stateRealUpSIMD,stateImagUpSIMD,stateRealLoSIMD,stateImagLoSIMD;
-    register __m256d alphaRealSIMD = _mm256_set1_pd(alphaReal);
-    register __m256d alphaImagSIMD = _mm256_set1_pd(alphaImag);
-    register __m256d betaRealSIMD = _mm256_set1_pd(betaReal);
-    register __m256d betaImagSIMD = _mm256_set1_pd(betaImag);
+    register const __m256d alphaRealSIMD = _mm256_set1_pd(alphaReal);
+    register const __m256d alphaImagSIMD = _mm256_set1_pd(alphaImag);
+    register const __m256d betaRealSIMD = _mm256_set1_pd(betaReal);
+    register const __m256d betaImagSIMD = _mm256_set1_pd(betaImag);
 
 
 # ifdef _OPENMP
@@ -2156,10 +2156,10 @@ void statevec_compactUnitaryDistributedSIMD (Qureg qureg,
     qreal *stateVecRealOut=stateVecOut.real, *stateVecImagOut=stateVecOut.imag;
 
     __m256d stateRealUpSIMD,stateRealLoSIMD,stateImagUpSIMD,stateImagLoSIMD;
-    register __m256d rot1RealSIMD = _mm256_set1_pd(rot1Real);
-    register __m256d rot1ImagSIMD = _mm256_set1_pd(rot1Imag);
-    register __m256d rot2RealSIMD = _mm256_set1_pd(rot2Real);
-    register __m256d rot2ImagSIMD = _mm256_set1_pd(rot2Imag);
+    register const __m256d rot1RealSIMD = _mm256_set1_pd(rot1Real);
+    register const __m256d rot1ImagSIMD = _mm256_set1_pd(rot1Imag);
+    register const __m256d rot2RealSIMD = _mm256_set1_pd(rot2Real);
+    register const __m256d rot2ImagSIMD = _mm256_set1_pd(rot2Imag);
 
 # ifdef _OPENMP
 # pragma omp parallel \
@@ -2350,10 +2350,10 @@ void statevec_controlledCompactUnitaryLocalSIMD (Qureg qureg, const int controlQ
     qreal betaImag=beta.imag, betaReal=beta.real;
 
     __m256d stateRealUpSIMD,stateImagUpSIMD,stateRealLoSIMD,stateImagLoSIMD;
-    register __m256d alphaRealSIMD = _mm256_set1_pd(alphaReal);
-    register __m256d alphaImagSIMD = _mm256_set1_pd(alphaImag);
-    register __m256d betaRealSIMD = _mm256_set1_pd(betaReal);
-    register __m256d betaImagSIMD = _mm256_set1_pd(betaImag);
+    register const __m256d alphaRealSIMD = _mm256_set1_pd(alphaReal);
+    register const __m256d alphaImagSIMD = _mm256_set1_pd(alphaImag);
+    register const __m256d betaRealSIMD = _mm256_set1_pd(betaReal);
+    register const __m256d betaImagSIMD = _mm256_set1_pd(betaImag);
 
 # ifdef _OPENMP
 # pragma omp parallel \
@@ -2714,10 +2714,10 @@ void statevec_controlledCompactUnitaryDistributedSIMD (Qureg qureg, const int co
     qreal *stateVecRealLo=stateVecLo.real, *stateVecImagLo=stateVecLo.imag;
     qreal *stateVecRealOut=stateVecOut.real, *stateVecImagOut=stateVecOut.imag;
 
-    register __m256d rot1RealSIMD = _mm256_set1_pd(rot1Real);
-    register __m256d rot1ImagSIMD = _mm256_set1_pd(rot1Imag);
-    register __m256d rot2RealSIMD = _mm256_set1_pd(rot2Real);
-    register __m256d rot2ImagSIMD = _mm256_set1_pd(rot2Imag);
+    register const __m256d rot1RealSIMD = _mm256_set1_pd(rot1Real);
+    register const __m256d rot1ImagSIMD = _mm256_set1_pd(rot1Imag);
+    register const __m256d rot2RealSIMD = _mm256_set1_pd(rot2Real);
+    register const __m256d rot2ImagSIMD = _mm256_set1_pd(rot2Imag);
 
 # ifdef _OPENMP
 # pragma omp parallel \
@@ -3474,7 +3474,7 @@ void statevec_hadamardLocalSIMD(Qureg qureg, const int targetQubit)
     qreal *stateVecImag = qureg.stateVec.imag;
 
     qreal recRoot2 = 1.0/sqrt(2);
-    register __m256d recRoot2SIMD = _mm256_set1_pd(recRoot2);
+    register const __m256d recRoot2SIMD = _mm256_set1_pd(recRoot2);
 
 # ifdef _OPENMP
 # pragma omp parallel \
@@ -3573,6 +3573,11 @@ void statevec_hadamardDistributed(Qureg qureg,
     long long int thisTask;  
     const long long int numTasks=qureg.numAmpsPerChunk;
 
+    if(numTasks >= 4){
+        statevec_hadamardDistributedSIMD(qureg,stateVecUp,stateVecLo,stateVecOut,updateUpper);
+        return;
+    }
+
     int sign;
     if (updateUpper) sign=1;
     else sign=-1;
@@ -3603,6 +3608,52 @@ void statevec_hadamardDistributed(Qureg qureg,
 
             stateVecRealOut[thisTask] = recRoot2*(stateRealUp + sign*stateRealLo);
             stateVecImagOut[thisTask] = recRoot2*(stateImagUp + sign*stateImagLo);
+        }
+    }
+}
+
+void statevec_hadamardDistributedSIMD(Qureg qureg,
+        ComplexArray stateVecUp,
+        ComplexArray stateVecLo,
+        ComplexArray stateVecOut,
+        int updateUpper)
+{
+
+    __m256d   stateRealUpSIMD,stateRealLoSIMD,stateImagUpSIMD,stateImagLoSIMD;
+    long long int thisTask;  
+    const long long int numTasks=qureg.numAmpsPerChunk;
+
+    int sign;
+    if (updateUpper) sign=1;
+    else sign=-1;
+
+    qreal recRoot2 = 1.0/sqrt(2);
+    register const __m256d recRoot2SIMD = _mm256_set1_pd(recRoot2);
+    register const __m256d signSIMD = _mm256_set1_pd(sign);
+
+    qreal *stateVecRealUp=stateVecUp.real, *stateVecImagUp=stateVecUp.imag;
+    qreal *stateVecRealLo=stateVecLo.real, *stateVecImagLo=stateVecLo.imag;
+    qreal *stateVecRealOut=stateVecOut.real, *stateVecImagOut=stateVecOut.imag;
+
+# ifdef _OPENMP
+# pragma omp parallel \
+    shared   (stateVecRealUp,stateVecImagUp,stateVecRealLo,stateVecImagLo,stateVecRealOut,stateVecImagOut, \
+            recRoot2SIMD, signSIMD) \
+    private  (thisTask,stateRealUpSIMD,stateImagUpSIMD,stateRealLoSIMD,stateImagLoSIMD)
+# endif
+    {
+# ifdef _OPENMP
+# pragma omp for schedule (static)
+# endif
+        for (thisTask=0; thisTask<numTasks; thisTask+=4) {
+            // store current state vector values in temp variables
+            stateRealUpSIMD = _mm256_loadu_pd(stateVecRealUp+thisTask);
+            stateImagUpSIMD = _mm256_loadu_pd(stateVecImagUp+thisTask);
+            stateRealLoSIMD = _mm256_loadu_pd(stateVecRealLo+thisTask);
+            stateImagLoSIMD = _mm256_loadu_pd(stateVecImagLo+thisTask);
+
+            _mm256_storeu_pd(stateVecRealOut+thisTask, _mm256_mul_pd(recRoot2SIMD,_mm256_add_pd(stateRealUpSIMD,_mm256_mul_pd(signSIMD,stateRealLoSIMD))));
+            _mm256_storeu_pd(stateVecImagOut+thisTask, _mm256_mul_pd(recRoot2SIMD,_mm256_add_pd(stateImagUpSIMD,_mm256_mul_pd(signSIMD,stateImagLoSIMD))));
         }
     }
 }
@@ -3669,8 +3720,8 @@ void statevec_phaseShiftByTermSIMD (Qureg qureg, const int targetQubit, Complex 
     qreal *stateVecImag = qureg.stateVec.imag;
     
     __m256d stateRealLoSIMD, stateImagLoSIMD;
-    register __m256d cosAngleSIMD = _mm256_set1_pd(term.real);
-    register __m256d sinAngleSIMD = _mm256_set1_pd(term.imag);
+    register const __m256d cosAngleSIMD = _mm256_set1_pd(term.real);
+    register const __m256d sinAngleSIMD = _mm256_set1_pd(term.imag);
 
 # ifdef _OPENMP
 # pragma omp parallel for \
