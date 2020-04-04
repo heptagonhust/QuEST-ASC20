@@ -106,6 +106,12 @@ void statevec_compactUnitaryDistributed (Qureg qureg,
         ComplexArray stateVecLo,
         ComplexArray stateVecOut);
 
+void statevec_compactUnitaryDistributedSIMD (Qureg qureg,
+        Complex rot1, Complex rot2,
+        ComplexArray stateVecUp,
+        ComplexArray stateVecLo,
+        ComplexArray stateVecOut);
+
 void statevec_unitaryLocal(Qureg qureg, const int targetQubit, ComplexMatrix2 u);
 
 void statevec_unitaryDistributed (Qureg qureg,
