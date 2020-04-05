@@ -1703,7 +1703,6 @@ void statevec_compactUnitaryLocalSIMD (Qureg qureg, const int targetQubit, Compl
 {
     long long int indexUp,indexLo;    // current index and corresponding index in lower half block
 
-    qreal stateRealUp,stateRealLo,stateImagUp,stateImagLo;
     
     const long long int numTasks = (qureg.numAmpsPerChunk>>(1 + targetQubit)) ;
     const long long int sizeTask = (1LL << targetQubit);
@@ -2146,7 +2145,6 @@ void statevec_compactUnitaryDistributedSIMD (Qureg qureg,
         ComplexArray stateVecOut)
 {
 
-    qreal   stateRealUp,stateRealLo,stateImagUp,stateImagLo;
     long long int thisTask;  
     const long long int numTasks=qureg.numAmpsPerChunk;
 
@@ -2332,7 +2330,6 @@ void statevec_controlledCompactUnitaryLocalSIMD (Qureg qureg, const int controlQ
     long long int thisBlock, // current block
          indexUp,indexLo;    // current index and corresponding index in lower half block
 
-    qreal stateRealUp,stateRealLo,stateImagUp,stateImagLo;
     long long int thisTask;         
     const long long int numTasks = ((targetQubit > controlQubit) ? (1LL << (targetQubit - controlQubit - 1)) : (1LL << (controlQubit - targetQubit - 1)));
     // const long long int chunkSize=qureg.numAmpsPerChunk;
