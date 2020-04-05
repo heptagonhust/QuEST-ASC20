@@ -231,7 +231,8 @@ void statevec_controlledCompactUnitary(Qureg qureg, const int controlQubit, cons
     // } else {
     //     statevec_controlledCompactUnitaryLocal(qureg, controlQubit, targetQubit, alpha, beta);
     // }
-    statevec_controlledCompactUnitaryLocal(qureg, controlQubit, targetQubit, alpha, beta);
+    // statevec_controlledCompactUnitaryLocal(qureg, controlQubit, targetQubit, alpha, beta);
+    statevec_controlledCompactUnitaryLocalSmall(qureg, controlQubit, targetQubit, alpha, beta);
 
 }
 

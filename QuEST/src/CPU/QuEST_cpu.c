@@ -2271,7 +2271,7 @@ void statevec_controlledCompactUnitaryLocalSmall (Qureg qureg, const int control
     // const long long int chunkSize=qureg.numAmpsPerChunk;
     // const long long int chunkId=qureg.chunkId;
     const long long int numBlocks = ((targetQubit > controlQubit) ? (qureg.numAmpsPerChunk>>(1 + targetQubit)) : (qureg.numAmpsPerChunk>>(1 + controlQubit)));
-
+    const long long int blockOffset = 1LL << controlQubit;
 
     // set dimensions
     sizeHalfBlock = 1LL << targetQubit;  
@@ -2294,7 +2294,7 @@ void statevec_controlledCompactUnitaryLocalSmall (Qureg qureg, const int control
 # endif
         for (thisBlock = 0; thisBlock < numBlocks; ++thisBlock) {
             for(thisTask = 0; thisTask < numTasks; ++thisTask)
-            for(indexUp = thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask; indexUp < thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask * 2; ++indexUp) {
+            for(indexUp = thisBlock * sizeBlock + sizeTask * thisTask * 2 + blockOffset; indexUp < thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask + blockOffset; ++indexUp) {
             // for(indexUp = thisBlock * sizeBlock; indexUp < thisBlock * sizeBlock + sizeHalfBlock; ++indexUp) {
 
                 indexLo     = indexUp + sizeHalfBlock;
@@ -2339,7 +2339,7 @@ void statevec_controlledCompactUnitaryLocalSIMD (Qureg qureg, const int controlQ
     // const long long int chunkId=qureg.chunkId;
     const long long int numBlocks = ((targetQubit > controlQubit) ? (qureg.numAmpsPerChunk>>(1 + targetQubit)) : (qureg.numAmpsPerChunk>>(1 + controlQubit)));
     const long long int sizeTask = ((targetQubit > controlQubit) ? (1LL << controlQubit) : (1LL << targetQubit));
-
+    const long long int blockOffset = 1LL << controlQubit;
 
     // set dimensions
     sizeHalfBlock = 1LL << targetQubit;  
@@ -2368,7 +2368,7 @@ void statevec_controlledCompactUnitaryLocalSIMD (Qureg qureg, const int controlQ
 # endif
         for (thisBlock = 0; thisBlock < numBlocks; ++thisBlock) {
             for(thisTask = 0; thisTask < numTasks; ++thisTask)
-            for(indexUp = thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask; indexUp < thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask * 2; ++indexUp) {
+            for(indexUp = thisBlock * sizeBlock + sizeTask * thisTask * 2 + blockOffset; indexUp < thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask + blockOffset; indexUp+=4) {
             // for(indexUp = thisBlock * sizeBlock; indexUp < thisBlock * sizeBlock + sizeHalfBlock; ++indexUp) {
 
                 indexLo     = indexUp + sizeHalfBlock;
@@ -3018,6 +3018,7 @@ void statevec_controlledNotLocalSmall(Qureg qureg, const int controlQubit, const
     // const long long int chunkId=qureg.chunkId;
     const long long int numBlocks = ((targetQubit > controlQubit) ? (qureg.numAmpsPerChunk>>(1 + targetQubit)) : (qureg.numAmpsPerChunk>>(1 + controlQubit)));
     const long long int sizeTask = ((targetQubit > controlQubit) ? (1LL << controlQubit) : (1LL << targetQubit));
+    const long long int blockOffset = 1LL << controlQubit;
     
     sizeHalfBlock = 1LL << targetQubit;  
     sizeBlock     = ((targetQubit > controlQubit) ? (2LL * sizeHalfBlock) : (2LL << controlQubit)); 
@@ -3029,7 +3030,7 @@ void statevec_controlledNotLocalSmall(Qureg qureg, const int controlQubit, const
 
 # ifdef _OPENMP
 # pragma omp parallel \
-    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag) \
+    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag,blockOffset) \
     private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp) 
 # endif
     {
@@ -3037,19 +3038,19 @@ void statevec_controlledNotLocalSmall(Qureg qureg, const int controlQubit, const
 # pragma omp for schedule (static)
 # endif
         for (thisBlock = 0; thisBlock < numBlocks; ++thisBlock) {
-            for(thisTask = 0; thisTask < numTasks; ++thisTask)
-            for(indexUp = thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask; indexUp < thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask * 2; ++indexUp) {
-            
-                indexLo     = indexUp + sizeHalfBlock;
+            for(thisTask = 0; thisTask < numTasks; ++thisTask) {
+                for(indexUp = thisBlock * sizeBlock + sizeTask * thisTask * 2 + blockOffset; indexUp < thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask + blockOffset; ++indexUp) {
+                    indexLo     = indexUp + sizeHalfBlock;
 
-                stateRealUp = stateVecReal[indexUp];
-                stateImagUp = stateVecImag[indexUp];
+                    stateRealUp = stateVecReal[indexUp];
+                    stateImagUp = stateVecImag[indexUp];
 
-                stateVecReal[indexUp] = stateVecReal[indexLo];
-                stateVecImag[indexUp] = stateVecImag[indexLo];
+                    stateVecReal[indexUp] = stateVecReal[indexLo];
+                    stateVecImag[indexUp] = stateVecImag[indexLo];
 
-                stateVecReal[indexLo] = stateRealUp;
-                stateVecImag[indexLo] = stateImagUp;
+                    stateVecReal[indexLo] = stateRealUp;
+                    stateVecImag[indexLo] = stateImagUp;
+                }
             }
         } 
     }
@@ -3289,7 +3290,7 @@ void statevec_controlledPauliYLocalSmall(Qureg qureg, const int controlQubit, co
     // const long long int chunkId=qureg.chunkId;
     const long long int numBlocks = ((targetQubit > controlQubit) ? (qureg.numAmpsPerChunk>>(1 + targetQubit)) : (qureg.numAmpsPerChunk>>(1 + controlQubit)));
     const long long int sizeTask = ((targetQubit > controlQubit) ? (1LL << controlQubit) : (1LL << targetQubit));
-
+    const long long int blockOffset = 1LL << controlQubit;
 
     // set dimensions
     sizeHalfBlock = 1LL << targetQubit;  
@@ -3302,7 +3303,7 @@ void statevec_controlledPauliYLocalSmall(Qureg qureg, const int controlQubit, co
 
 # ifdef _OPENMP
 # pragma omp parallel \
-    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag) \
+    shared   (sizeBlock,sizeHalfBlock, stateVecReal,stateVecImag, blockOffset) \
     private  (thisTask,thisBlock ,indexUp,indexLo, stateRealUp,stateImagUp) 
 # endif
     {
@@ -3310,18 +3311,19 @@ void statevec_controlledPauliYLocalSmall(Qureg qureg, const int controlQubit, co
 # pragma omp for schedule (static)
 # endif
         for (thisBlock = 0; thisBlock < numBlocks; ++thisBlock) {
-            for(thisTask = 0; thisTask < numTasks; ++thisTask)
-            for(indexUp = thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask; indexUp < thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask * 2; ++indexUp) {
-            
-                indexLo     = indexUp + sizeHalfBlock;
-                stateRealUp = stateVecReal[indexUp];
-                stateImagUp = stateVecImag[indexUp];
+            for(thisTask = 0; thisTask < numTasks; ++thisTask){
+                for(indexUp = thisBlock * sizeBlock + sizeTask * thisTask * 2 + blockOffset; indexUp < thisBlock * sizeBlock + sizeTask * thisTask * 2 + sizeTask + blockOffset; ++indexUp) {
+                    indexLo     = indexUp + sizeHalfBlock;
 
-                // update under +-{{0, -i}, {i, 0}}
-                stateVecReal[indexUp] = conjFac * stateVecImag[indexLo];
-                stateVecImag[indexUp] = conjFac * -stateVecReal[indexLo];
-                stateVecReal[indexLo] = conjFac * -stateImagUp;
-                stateVecImag[indexLo] = conjFac * stateRealUp;
+                    stateRealUp = stateVecReal[indexUp];
+                    stateImagUp = stateVecImag[indexUp];
+
+                    // update under +-{{0, -i}, {i, 0}}
+                    stateVecReal[indexUp] = conjFac * stateVecImag[indexLo];
+                    stateVecImag[indexUp] = conjFac * -stateVecReal[indexLo];
+                    stateVecReal[indexLo] = conjFac * -stateImagUp;
+                    stateVecImag[indexLo] = conjFac * stateRealUp;
+                }
             }
         } 
     }
