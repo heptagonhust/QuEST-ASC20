@@ -33,6 +33,7 @@ int main(int narg, char *argv[]) {
   sGate(q, 8);
   controlledPauliY(q, 23, 14);
   controlledPauliY(q, 18, 17);
+  controlledNot(q, 20, 18);
   controlledPauliY(q, 9, 15);
   pauliY(q, 6);
   controlledNot(q, 18, 19);
@@ -223,11 +224,6 @@ int main(int narg, char *argv[]) {
   for (long long int i = 0; i < 10; ++i) {
     q_measure[i] = calcProbOfOutcome(q, i, 1);
     printf("  probability for q[%2lld]==1 : %lf    \n", i, q_measure[i]);
-  }
-
-  for (int i = 0; i < 10; ++i) {
-    Complex amp = getAmp(q, i);
-    printf("Amplitude of %dth state vector: %f\n", i, amp.real);
   }
 
   printf("\n");
